@@ -1,0 +1,8 @@
+Unit,Is_Input,Is_Output,Amount
+Usable_Power,1,0,75
+Chilled_Water,1,0,7
+Internal_Network,0,1,100
+Fresh_Water,0,1,7
+Space_X,1,0,40
+Space_Y,1,0,40
+Price,1,0,8000

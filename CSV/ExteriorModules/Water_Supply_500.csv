@@ -1,0 +1,6 @@
+Unit,Is_Input,Is_Output,Amount
+Water_Connection,1,0,1
+Space_X,1,0,150
+Space_Y,1,0,100
+Price,1,0,400
+Fresh_Water,0,1,500

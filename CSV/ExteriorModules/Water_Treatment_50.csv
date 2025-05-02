@@ -1,0 +1,7 @@
+Unit,Is_Input,Is_Output,Amount
+Fresh_Water,1,0,50
+Usable_Power,1,0,50
+Space_X,1,0,50
+Space_Y,1,0,50
+Price,1,0,10000
+Distlled_Water,0,1,50

@@ -1,0 +1,6 @@
+Unit,Is_Input,Is_Output,Amount
+Grid_Connection,1,0,1
+Space_X,1,0,40
+Space_Y,1,0,45
+Price,1,0,1000
+Usable_Power,0,1,100

@@ -112,18 +112,9 @@ def load_exterior_modules(directory_path):
                             if pd.notna(is_output) and int(is_output) == 1: outputs[unit] = amount
                         except (ValueError, TypeError): pass
 
-                    # Extract size information from inputs if available
-                    size_x = 0.0
-                    size_y = 0.0
-                    
-                    if 'Space_X' in inputs:
-                        size_x = float(inputs['Space_X'])
-                    if 'Space_Y' in inputs:
-                        size_y = float(inputs['Space_Y'])
-
                     if inputs or outputs:
-                        # Create module with extracted size values
-                        module = Module(id=module_id, inputs=inputs, outputs=outputs, size_x=size_x, size_y=size_y)
+                        # Assuming Module class is appropriate here, adjust if a specific ExteriorModule class exists
+                        module = Module(id=module_id, inputs=inputs, outputs=outputs, size_x=0.0, size_y=0.0)
                         modules.append(module)
                     else:
                         print(f"Warning: No valid input or output data found in file '{file_path}'.")

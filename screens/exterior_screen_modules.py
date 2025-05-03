@@ -170,7 +170,8 @@ class ExteriorSpace:
         self.subspaces.append(subspace)
 
     def remove_subspace(self, subspace: Subspace):
-        """Removes a subspace from the exterior space."""
+        """Removes a subspace from the exterior space, unless it is an Environment."""
+        # No hay Environment como subspace, así que no se aplica aquí
         if subspace in self.subspaces:
             self.subspaces.remove(subspace)
             

@@ -126,14 +126,23 @@ class EnvironmentSetupScreen(QWidget):
 
     def delete_selected_items(self):
         selected_items = self.scene.selectedItems()
+        environment_ids = []
+        to_delete = []
         for item in selected_items:
             if isinstance(item, QGraphicsTextItem):
                 item = item.parentItem()
             if isinstance(item, QGraphicsRectItem) and hasattr(item, 'unique_map_id'):
                 unique_id = getattr(item, 'unique_map_id', None)
                 if unique_id and unique_id in self.active_items_on_map:
-                    del self.active_items_on_map[unique_id]
-                self.scene.removeItem(item)
+                    obj, t = self.active_items_on_map[unique_id]
+                    if t == "Environment":
+                        environment_ids.append(unique_id)
+                    else:
+                        to_delete.append((item, unique_id))
+        # Eliminar solo los que no son Environment
+        for item, unique_id in to_delete:
+            del self.active_items_on_map[unique_id]
+            self.scene.removeItem(item)
         self.clear_details()
         self.populate_available_items()
 
@@ -654,18 +663,21 @@ class EnvironmentSetupScreen(QWidget):
         self.scene.update()
 
     def show_item_context_menu(self, event, rect_item):
+        unique_id = getattr(rect_item, 'unique_map_id', None)
+        if unique_id and unique_id in self.active_items_on_map:
+            obj, t = self.active_items_on_map[unique_id]
+            if t == "Environment":
+                # No mostrar menú contextual para eliminar Environment
+                return
         menu = QMenu()
         delete_action = menu.addAction("Eliminar")
         action = menu.exec(event.screenPos())
         if action == delete_action:
-            unique_id = getattr(rect_item, 'unique_map_id', None)
             if unique_id and unique_id in self.active_items_on_map:
-                # Eliminar del diccionario y de la escena
                 del self.active_items_on_map[unique_id]
                 self.scene.removeItem(rect_item)
                 self.clear_details()
                 self.populate_available_items()
-            # Cerrar el rectángulo de selección si está activo
             if hasattr(self, 'view') and hasattr(self.view, '_rubber_band_active'):
                 self.view._rubber_band_active = False
                 self.view._rubber_band_rect = None

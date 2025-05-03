@@ -11,13 +11,13 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox, QMenu
 )
 # Importar clases base necesarias de modules
-from modules import Module, Environment
+from modules import Module, Environment, Center
 
 # --- Pantalla de Configuración del Entorno ---
 class EnvironmentSetupScreen(QWidget):
     environment_changed = Signal(object)  # Señal que envía el Environment activo
     # Modificar constructor para aceptar todos los tipos de módulos de entorno
-    def __init__(self, available_envs, available_hpls, available_lpls, available_wcs, available_ars):
+    def __init__(self, available_envs, available_hpls, available_lpls, available_wcs, available_ars, available_centers=None):
         super().__init__()
         # Almacenar todas las listas de objetos disponibles
         self.available_items = {
@@ -25,7 +25,8 @@ class EnvironmentSetupScreen(QWidget):
             "HighPowerLine": available_hpls,
             "LowPowerLine": available_lpls,
             "WaterConnection": available_wcs,
-            "AccessRoad": available_ars
+            "AccessRoad": available_ars,
+            "Center": available_centers if available_centers is not None else []
         }
         
         # Diccionario unificado para guardar items añadidos al mapa {unique_id: (object, type_str)}
@@ -152,6 +153,7 @@ class EnvironmentSetupScreen(QWidget):
         environment_exists = any(
             isinstance(obj, Environment) for obj, t in self.active_items_on_map.values()
         )
+        center_exists = any(isinstance(obj, Center) for obj, t in self.active_items_on_map.values())
         for item_type, item_list in self.available_items.items():
             if not item_list:
                 continue
@@ -174,10 +176,10 @@ class EnvironmentSetupScreen(QWidget):
                 add_button = QPushButton("+")
                 add_button.setFixedSize(30, 30)
                 add_button.setToolTip(f"Añadir '{item_obj.id}' ({item_type}) al mapa")
-                # Deshabilitar el botón si ya hay un Environment
-                if item_type == "Environment" and environment_exists:
+                # Deshabilitar el botón si ya hay un Environment o Center
+                if (item_type == "Environment" and environment_exists) or (item_type == "Center" and center_exists):
                     add_button.setEnabled(False)
-                    add_button.setToolTip("Solo puede haber un Environment en el mapa")
+                    add_button.setToolTip(f"Solo puede haber un {item_type} en el mapa")
                 else:
                     add_button.clicked.connect(lambda checked=False, obj=item_obj, type_str=item_type: self.add_item_to_map(obj, type_str))
 
@@ -234,6 +236,12 @@ class EnvironmentSetupScreen(QWidget):
                     self.environment_changed.emit(obj)  # Emitir señal al actualizar
                     QMessageBox.information(self, "Actualizado", "Los parámetros numéricos del Environment han sido actualizados (sumados). Solo puede haber uno en el mapa.")
                     return
+        # Si es Center y ya existe uno, no permitir añadir otro
+        if item_type_str == "Center":
+            for unique_id, (obj, t) in self.active_items_on_map.items():
+                if isinstance(obj, Center):
+                    QMessageBox.information(self, "Center", "Solo puede haber un Center en el mapa.")
+                    return
         unique_map_id = f"{item_type_str}_{item_object.id}_{self.map_item_counter}"
         self.map_item_counter += 1
 
@@ -254,7 +262,16 @@ class EnvironmentSetupScreen(QWidget):
             # Centrar la línea en la escena
             x = (self.scene.width() - item_width) / 2
             y = (self.scene.height() - item_height) / 2
-        elif isinstance(item_object, Module):
+        elif isinstance(item_object, Center):
+            # Usar Space_X y Space_Y del Center para el tamaño
+            try:
+                item_width = max(min_size, self.available_items["Center"][0].inputs.get('Space_X'))
+                item_height = max(min_size, self.available_items["Center"][0].inputs.get('Space_Y'))
+            except Exception:
+                item_width = default_size_x
+                item_height = default_size_y
+        elif isinstance(item_object, Module) and not isinstance(item_object, Center):
+            print("jhdask")
             try:
                 space_x = float(item_object.inputs.get('Space_X', default_size_x))
                 space_y = float(item_object.inputs.get('Space_Y', default_size_y))
@@ -272,9 +289,11 @@ class EnvironmentSetupScreen(QWidget):
             except Exception:
                 item_width = default_size_x
                 item_height = default_size_y
+        
 
+        
         # Limitar tamaño máximo al de la escena menos márgenes (excepto PowerLine y AccessRoad)
-        if item_type_str not in ["HighPowerLine", "LowPowerLine", "AccessRoad", "WaterConnection"] and not isinstance(item_object, Environment):
+        if item_type_str not in ["HighPowerLine", "LowPowerLine", "AccessRoad", "WaterConnection", "Center"] and not isinstance(item_object, Environment):
             item_width = default_size_x
             item_height = default_size_y
 
@@ -288,6 +307,8 @@ class EnvironmentSetupScreen(QWidget):
             color = QtGui.QColor(150, 200, 255)
         elif "AccessRoad" in item_type_str:
             color = QtGui.QColor(220, 220, 220)
+        elif "Center" in item_type_str:
+            color = QtGui.QColor(255, 255, 150)
 
         # Calcular posición
         if item_type_str == "Environment":

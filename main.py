@@ -18,7 +18,8 @@ from PySide6.QtWidgets import QApplication, QMainWindow, QTabWidget
 from environment_screen import EnvironmentSetupScreen
 from screens.exterior_screen import ExteriorScreen
 from screens.exterior_screen_modules import ExteriorSpace, Subspace
-from interior_screen import InteriorScreen
+from screens.interior_screen import InteriorScreen
+from screens.interior_screen_modules import InteriorSpace, Subspace
 
 # --- Ventana Principal con Pestañas ---
 class MainWindow(QMainWindow):
@@ -35,12 +36,12 @@ class MainWindow(QMainWindow):
 
         # Crear instancia de la pantalla exterior y añadirla a la segunda pestaña
         self.exterior_space = ExteriorSpace(2000, 1000)  # Tamaño inicial del espacio exterior
-        self.exterior_modules = load_exterior_modules("CSV/ExteriorModules/")  # Cargar módulos exteriores
-        self.exterior_screen = ExteriorScreen(self.exterior_space, self.exterior_modules)
+        self.exterior_screen = ExteriorScreen(self.exterior_space, ext_mods)
         self.tab_widget.addTab(self.exterior_screen, "Exterior")
 
         # Crear instancia de la pantalla interior y añadirla a la tercera pestaña
-        self.interior_screen = InteriorScreen(int_mods)
+        self.interior_space = InteriorSpace(1000, 500)  # Tamaño inicial del espacio interior
+        self.interior_screen = InteriorScreen(self.interior_space, int_mods)
         self.tab_widget.addTab(self.interior_screen, "Interior")
 
 

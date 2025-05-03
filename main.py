@@ -18,7 +18,8 @@ from PySide6.QtWidgets import QApplication, QMainWindow, QTabWidget
 from environment_screen import EnvironmentSetupScreen
 from screens.exterior_screen import ExteriorScreen
 from screens.exterior_screen_modules import ExteriorSpace, Subspace
-from interior_screen import InteriorScreen
+from screens.interior_screen import InteriorScreen
+from screens.interior_screen_modules import InteriorSpace
 
 # --- Ventana Principal con Pestañas ---
 class MainWindow(QMainWindow):
@@ -44,7 +45,9 @@ class MainWindow(QMainWindow):
         self.tab_widget.addTab(self.exterior_screen, "Exterior")
 
         # Crear instancia de la pantalla interior y añadirla a la tercera pestaña
-        self.interior_screen = InteriorScreen(int_mods)
+        self.interior_space = InteriorSpace(2000, 1000)  # Tamaño inicial del espacio interior
+        self.interior_modules = load_interior_modules("CSV/InteriorModules/")
+        self.interior_screen = InteriorScreen(self.interior_modules)
         self.tab_widget.addTab(self.interior_screen, "Interior")
 
         # Conectar la señal para actualización en tiempo real

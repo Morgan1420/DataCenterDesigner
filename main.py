@@ -1,6 +1,6 @@
 # Import the necessary components from the new modules file
 # Import new classes and functions
-from modules import (Module, ModuleExterior, ModuleInterior, Environment,
+from modules import (Module, ModuleInterior, Environment,
                    HighPowerLine, LowPowerLine, _load_module_like, load_exterior_modules,
                    load_interior_modules, load_environment_variables,
                    load_high_power_lines, load_low_power_lines, WaterConnection, AccessRoad,
@@ -16,7 +16,8 @@ from PySide6.QtWidgets import QApplication, QMainWindow, QTabWidget
 
 # Importar las clases de pantalla desde los nuevos archivos
 from environment_screen import EnvironmentSetupScreen
-from exterior_screen import ExteriorScreen
+from screens.exterior_screen import ExteriorScreen
+from screens.exterior_screen_modules import ExteriorSpace, Subspace
 from interior_screen import InteriorScreen
 
 # --- Ventana Principal con Pestañas ---
@@ -33,7 +34,9 @@ class MainWindow(QMainWindow):
         self.tab_widget.addTab(self.environment_screen, "Entorno")
 
         # Crear instancia de la pantalla exterior y añadirla a la segunda pestaña
-        self.exterior_screen = ExteriorScreen(ext_mods)
+        self.exterior_space = ExteriorSpace(2000, 1000)  # Tamaño inicial del espacio exterior
+        self.exterior_modules = load_exterior_modules("CSV/ExteriorModules/")  # Cargar módulos exteriores
+        self.exterior_screen = ExteriorScreen(self.exterior_space, self.exterior_modules)
         self.tab_widget.addTab(self.exterior_screen, "Exterior")
 
         # Crear instancia de la pantalla interior y añadirla a la tercera pestaña
@@ -72,8 +75,8 @@ if __name__ == "__main__":
         for filename in os.listdir(exterior_modules_dir):
             if filename.endswith(".csv"):
                 file_path = os.path.join(exterior_modules_dir, filename)
-                # Usar _load_module_like con ModuleExterior
-                mods_from_file = _load_module_like(file_path, ModuleExterior, "ModuleExterior")
+                # Usar _load_module_like con ExteriorSpace
+                mods_from_file = _load_module_like(file_path, ExteriorSpace, "ExteriorSpace")
                 exterior_modules.extend(mods_from_file)
     else:
         print(f"Advertencia: Directorio de módulos exteriores no encontrado en {exterior_modules_dir}")

@@ -8,12 +8,13 @@ from modules import Module
 
 
 class ExteriorScreen(QWidget):
-    def __init__(self, exterior_space: ExteriorSpace, available_modules: list[Module]):
+    def __init__(self, exterior_space: ExteriorSpace, available_modules: list[Module], environment=None):
         super().__init__()
         if not isinstance(exterior_space, ExteriorSpace):
             raise TypeError(f"Expected ExteriorSpace object, but received {type(exterior_space)}")
         self.exterior_space: ExteriorSpace = exterior_space
         self.available_modules = available_modules
+        self.environment = environment  # Guardar referencia al Environment
         self.subspace_scenes = {}  # Dictionary to store scenes: {(x, y): scene}
         self.subspace_module_lists = {}  # Dictionary to store module lists: {(x, y): list_widget}
 
@@ -58,13 +59,35 @@ class ExteriorScreen(QWidget):
         self.scroll_area.setMinimumHeight(200)  # Set minimum height for the scroll area
         self.bottom_layout.addWidget(self.scroll_area)
 
+    def set_environment(self, environment):
+        self.environment = environment
+        if environment:
+            try:
+                size_x = float(environment.parameters.get('Space_X', 1000))
+                size_y = float(environment.parameters.get('Space_Y', 500))
+                self.exterior_space.resize(size_x, size_y)
+            except Exception:
+                pass
+        self._draw_space()
+
     def _draw_space(self):
         self.scene.clear()
 
-        # Draw the exterior space
-        space_rect = QGraphicsRectItem(0, 0, self.exterior_space.get_size_x(), self.exterior_space.get_size_y())
-        space_rect.setBrush(QColor(200, 200, 200))
-        self.scene.addItem(space_rect)
+        # Dibujar el rectángulo del Environment si existe
+        if self.environment:
+            try:
+                env_width = float(self.environment.parameters.get('Space_X', 1000))
+                env_height = float(self.environment.parameters.get('Space_Y', 500))
+                env_rect = QGraphicsRectItem(0, 0, env_width, env_height)
+                env_rect.setBrush(QColor(180, 220, 180))
+                self.scene.addItem(env_rect)
+            except Exception:
+                pass
+        else:
+            # Draw the exterior space (fallback)
+            space_rect = QGraphicsRectItem(0, 0, self.exterior_space.get_size_x(), self.exterior_space.get_size_y())
+            space_rect.setBrush(QColor(200, 200, 200))
+            self.scene.addItem(space_rect)
 
         # Draw each subspace and its modules
         for subspace in self.exterior_space.get_subspaces():

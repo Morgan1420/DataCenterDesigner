@@ -1,7 +1,7 @@
 import sys
 import random
 from PySide6 import QtCore, QtWidgets, QtGui
-from PySide6.QtCore import Qt, QRectF
+from PySide6.QtCore import Qt, QRectF, Signal
 from PySide6.QtGui import QPen, QBrush, QColor, QPainter
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
@@ -15,6 +15,7 @@ from modules import Module, Environment
 
 # --- Pantalla de Configuración del Entorno ---
 class EnvironmentSetupScreen(QWidget):
+    environment_changed = Signal(object)  # Señal que envía el Environment activo
     # Modificar constructor para aceptar todos los tipos de módulos de entorno
     def __init__(self, available_envs, available_hpls, available_lpls, available_wcs, available_ars):
         super().__init__()
@@ -221,6 +222,7 @@ class EnvironmentSetupScreen(QWidget):
                             pass
                     self.update_map_tooltip(unique_id, obj)
                     self.display_item_details(obj, "Environment")
+                    self.environment_changed.emit(obj)  # Emitir señal al actualizar
                     QMessageBox.information(self, "Actualizado", "Los parámetros numéricos del Environment han sido actualizados (sumados). Solo puede haber uno en el mapa.")
                     return
         unique_map_id = f"{item_type_str}_{item_object.id}_{self.map_item_counter}"
@@ -329,6 +331,9 @@ class EnvironmentSetupScreen(QWidget):
                 self._powerline_shortcut_connected = True
                 self._powerline_shortcut = QtGui.QShortcut(QtGui.QKeySequence("Ctrl+R"), self)
                 self._powerline_shortcut.activated.connect(self.rotate_selected_powerline)
+
+        if item_type_str == "Environment":
+            self.environment_changed.emit(item_object)  # Emitir señal al añadir
 
     def on_map_item_selected(self):
         selected_items = self.scene.selectedItems()
@@ -497,6 +502,7 @@ class EnvironmentSetupScreen(QWidget):
                 if key in ['Space_X', 'Space_Y']:
                     self.resize_map_item(unique_map_id, item_object)
                 self.update_map_tooltip(unique_map_id, item_object)
+                self.environment_changed.emit(item_object)  # Emitir señal al editar
             elif param_type == "input" and isinstance(item_object, Module):
                 print(f"Actualizando Input {item_object.id}: {key} = {new_value}")
                 try:
@@ -664,6 +670,13 @@ class EnvironmentSetupScreen(QWidget):
                 self.view._rubber_band_active = False
                 self.view._rubber_band_rect = None
                 self.view.viewport().update()
+
+    def get_active_environment(self):
+        # Devuelve el primer Environment en el mapa, o None si no hay
+        for obj, t in self.active_items_on_map.values():
+            if isinstance(obj, Environment):
+                return obj
+        return None
 
 class MapGraphicsView(QGraphicsView):
     def __init__(self, *args, **kwargs):

@@ -33,15 +33,31 @@ class MainWindow(QMainWindow):
         self.environment_screen = EnvironmentSetupScreen(env_params, hpls, lpls, wcs, ars)
         self.tab_widget.addTab(self.environment_screen, "Entorno")
 
-        # Crear instancia de la pantalla exterior y añadirla a la segunda pestaña
-        self.exterior_space = ExteriorSpace(2000, 1000)  # Tamaño inicial del espacio exterior
-        self.exterior_modules = load_exterior_modules("CSV/ExteriorModules/")  # Cargar módulos exteriores
-        self.exterior_screen = ExteriorScreen(self.exterior_space, self.exterior_modules)
+        # Obtener el Environment inicial (si existe)
+        env = self.environment_screen.get_active_environment()
+        env_size_x = float(env.parameters.get('Space_X', 1000)) if env else 1000
+        env_size_y = float(env.parameters.get('Space_Y', 500)) if env else 500
+        self.exterior_space = ExteriorSpace(env_size_x, env_size_y)
+        self.exterior_modules = load_exterior_modules("CSV/ExteriorModules/")
+        self.exterior_screen = ExteriorScreen(self.exterior_space, self.exterior_modules, environment=env)
         self.tab_widget.addTab(self.exterior_screen, "Exterior")
 
         # Crear instancia de la pantalla interior y añadirla a la tercera pestaña
         self.interior_screen = InteriorScreen(int_mods)
         self.tab_widget.addTab(self.interior_screen, "Interior")
+
+        # Conectar la señal para actualización en tiempo real
+        self.environment_screen.environment_changed.connect(self.on_environment_changed)
+
+    def on_environment_changed(self, environment):
+        if environment:
+            try:
+                size_x = float(environment.parameters.get('Space_X', 1000))
+                size_y = float(environment.parameters.get('Space_Y', 500))
+                self.exterior_space.resize(size_x, size_y)
+                self.exterior_screen.set_environment(environment)
+            except Exception as e:
+                print(f"Error actualizando exterior: {e}")
 
 
 if __name__ == "__main__":

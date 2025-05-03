@@ -6,6 +6,7 @@ class Module:
     def __init__(self, id, inputs, outputs, size_x, size_y):
         self.id = id
         self.inputs = inputs  # Dictionary {Unit: Amount}
+        self.inputs_no_price = {k: v for k, v in inputs.items() if k != 'Price'} # Exclude 'Price' unit
         self.outputs = outputs  # Dictionary {Unit: Amount}
         self.size_x = size_x  # Width of the module
         self.size_y = size_y  # Height of the module

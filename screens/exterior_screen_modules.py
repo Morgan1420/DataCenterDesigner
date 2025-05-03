@@ -1,6 +1,10 @@
 from modules import Module
+from PySide6.QtWidgets import QGraphicsLineItem
+from PySide6.QtCore import Qt, QPointF
+from PySide6.QtGui import QPen, QColor
 
 PADDING = 5  # Define padding between modules
+
 
 class Subspace:
     """Represents a subspace with x and y dimensions."""
@@ -9,13 +13,15 @@ class Subspace:
         self.size_y = size_y
         self.x = 0.0
         self.y = 0.0
-        self.inputs: dict[str, float] = {}
-        self.outputs: dict[str, float] = {}
+        self.inputs: dict[str, float] = {}  # For reference the values can be: {"Water_Connection": 0.0, "Fresh_Water": 0.0, "Distlled_Water": 0.0, "Chilled_Water": 0.0, "Grid_Connection": 0.0, "Usable_Power": 0.0}  
+        self.outputs: dict[str, float] = {}  # {"Water_Connection": 0.0, "Fresh_Water": 0.0, "Distlled_Water": 0.0, "Chilled_Water": 0.0, "Grid_Connection": 0.0, "Usable_Power": 0.0}  
         self.modules: list[Module] = []
         # Tracking for grid placement
         self._current_placement_x = PADDING
         self._current_placement_y = PADDING
         self._max_y_in_row = PADDING
+        # Track boundary connections
+        self.boundary_connections = []
         
     def add_input(self, input: str, amount: float):
         """Adds an input to the subspace."""
@@ -31,15 +37,59 @@ class Subspace:
         else:
             self.outputs[output] = amount
     
-    def remove_input(self, input: str):
+    def remove_input(self, input: str, value: float = 0.0):
         """Removes an input from the subspace."""
         if input in self.inputs:
-            del self.inputs[input]
+            self.inputs[input] -= value
+            if self.inputs[input] <= 0:
+                del self.inputs[input]
     
-    def remove_output(self, output: str):
+    def remove_output(self, output: str, value: float = 0.0):
         """Removes an output from the subspace."""
         if output in self.outputs:
-            del self.outputs[output]
+            self.outputs[output] -= value
+            if self.outputs[output] <= 0:
+                del self.outputs[output]
+    
+    def remove_all_inputs(self):
+        """Removes all inputs from the subspace."""
+        self.inputs.clear()
+        
+    def remove_all_outputs(self):
+        """Removes all outputs from the subspace."""
+        self.outputs.clear()
+        
+    def update_boundary_connection(self, data_type: str, is_input: bool, amount: float, add: bool = True):
+        """Updates inputs/outputs based on boundary connections.
+        
+        Args:
+            data_type: The type of data being connected
+            is_input: True if connecting to an input boundary circle, False for output
+            amount: The amount of data flowing through the connection
+            add: True to add a connection, False to remove a connection
+        """
+        if add:
+            # Adding a connection
+            if is_input:
+                # Connection to an input boundary adds to subspace inputs
+                self.add_input(data_type, amount)
+            else:
+                # Connection to an output boundary adds to subspace outputs
+                self.add_output(data_type, amount)
+        else:
+            # Removing a connection
+            if is_input:
+                # Connection to an input boundary removes from subspace inputs
+                if data_type in self.inputs:
+                    self.inputs[data_type] -= amount
+                    if self.inputs[data_type] <= 0:
+                        del self.inputs[data_type]
+            else:
+                # Connection to an output boundary removes from subspace outputs
+                if data_type in self.outputs:
+                    self.outputs[data_type] -= amount
+                    if self.outputs[data_type] <= 0:
+                        del self.outputs[data_type]
             
     def get_inputs(self) -> dict[str, float]:
         """Returns the dictionary of inputs."""
@@ -98,12 +148,8 @@ class Subspace:
         self.size_y = max(self.size_y, required_height)
         # --- End Resizing ---
 
-        # Add module inputs and outputs to the subspace
-        for unit, amount in module.inputs.items():
-            self.inputs[unit] = self.inputs.get(unit, 0) + amount
-
-        for unit, amount in module.outputs.items():
-            self.outputs[unit] = self.outputs.get(unit, 0) + amount
+        # NOTE: Removed automatic addition of module inputs and outputs to the subspace
+        # Subspace inputs/outputs will be determined by boundary connections instead
 
     def get_modules(self) -> list[Module]:
         """Returns the list of modules."""
@@ -115,17 +161,8 @@ class Subspace:
             # Remove the module from our list
             self.modules.remove(module)
             
-            # Update inputs/outputs
-            for unit, amount in module.inputs.items():
-                if unit in self.inputs:
-                    self.inputs[unit] -= amount
-                    if self.inputs[unit] <= 0:
-                        del self.inputs[unit]
-            for unit, amount in module.outputs.items():
-                if unit in self.outputs:
-                    self.outputs[unit] -= amount
-                    if self.outputs[unit] <= 0:
-                        del self.outputs[unit]
+            # NOTE: Removed automatic removal of module inputs/outputs from the subspace
+            # Subspace inputs/outputs are now determined by boundary connections instead
             
             # Recalculate the bounding box based on the remaining modules
             if self.modules:
@@ -135,8 +172,8 @@ class Subspace:
                 
                 for mod in self.modules:
                     # Calculate the right and bottom edges of each module
-                    mod_right = mod.x + (mod.size_x if mod.size_x > 0 else 20)
-                    mod_bottom = mod.y + (mod.size_y if mod.size_y > 0 else 20)
+                    mod_right = mod.x + mod.size_x
+                    mod_bottom = mod.y + mod.size_y
                     
                     # Update max coordinates
                     max_x = max(max_x, mod_right + PADDING)
@@ -153,9 +190,85 @@ class Subspace:
             # Reset placement tracking variables for consistent future placements
             self._current_placement_x = PADDING
             self._current_placement_y = PADDING
-            self._max_height_current_row = 0
-            self._max_width_current_column = 0
+            self._max_y_in_row = PADDING
             
+    def update_size_for_module_position(self, module: Module):
+        """Update the subspace size if needed when a module is moved."""
+        if module in self.modules:
+            # Calculate required size based on module position
+            required_width = module.x + module.size_x + PADDING
+            required_height = module.y + module.size_y + PADDING
+            
+            # Expand dimensions if needed
+            if required_width > self.size_x or required_height > self.size_y:
+                self.size_x = max(self.size_x, required_width)
+                self.size_y = max(self.size_y, required_height)
+                return True  # Size was changed
+        
+        return False  # No change needed
+
+    def recalculate_size(self):
+        """Recalculate the optimal size of the subspace based on the current module positions."""
+        if not self.modules:
+            # If no modules, reset to minimum size
+            self.size_x = PADDING * 2
+            self.size_y = PADDING * 2
+            return
+            
+        # Find the maximum extents of all modules (with padding)
+        max_x = PADDING
+        max_y = PADDING
+        
+        for module in self.modules:
+            # Calculate the right and bottom edges of the module
+            right_edge = module.x + module.size_x
+            bottom_edge = module.y + module.size_y
+            
+            # Update maximum coordinates
+            max_x = max(max_x, right_edge + PADDING)
+            max_y = max(max_y, bottom_edge + PADDING)
+        
+        # Update subspace dimensions
+        self.size_x = max_x
+        self.size_y = max_y
+
+class BoundaryIOBox:
+    """Represents an input/output box at the boundary of a subspace."""
+    def __init__(self, is_input: bool, data_type: str, value: float = 0.0):
+        self.is_input = is_input  # True for input, False for output
+        self.data_type = data_type
+        self.value = value
+        self.connections = []  # List of connections to/from this box
+        self.x = 0
+        self.y = 0
+        self.size = 10  # Default size
+
+    def set_position(self, x: float, y: float):
+        """Sets the position of the boundary IO box."""
+        self.x = x
+        self.y = y
+
+    def set_size(self, size: float):
+        """Sets the size of the boundary IO box."""
+        self.size = size
+
+    def add_connection(self, connection):
+        """Adds a connection to this boundary IO box."""
+        self.connections.append(connection)
+
+    def remove_connection(self, connection):
+        """Removes a connection from this boundary IO box."""
+        if connection in self.connections:
+            self.connections.remove(connection)
+    
+    def get_connections(self):
+        """Returns the list of connections to/from this boundary IO box."""
+        return self.connections
+
+    def update_value(self, value: float):
+        """Updates the value of this boundary IO box."""
+        self.value = value
+
 class ExteriorSpace:
     """Represents an exterior space with x and y dimensions and a list of subspaces."""
     def __init__(self, size_x: float, size_y: float):

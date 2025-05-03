@@ -1,9 +1,11 @@
-\
 from PySide6 import QtWidgets
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QPointF, QRectF
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QLabel, QPushButton, QListWidget, QMessageBox
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QListWidget, QMessageBox,
+    QGraphicsView, QGraphicsScene, QGraphicsRectItem, QGraphicsLineItem, QGraphicsItem,
+    QGraphicsEllipseItem, QGraphicsPolygonItem, QMenu, QListWidgetItem, QSplitter
 )
+from PySide6.QtGui import QColor, QPen, QBrush, QCursor, QPainter, QPolygonF
 
 # --- Pantalla Placeholder para Interior ---
 class InteriorScreen(QWidget):

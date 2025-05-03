@@ -352,13 +352,15 @@ class ExteriorScreen(QWidget):
             print(f"Error: Could not find stored components for subspace {subspace_coords} during removal.")
 
     def _visualize_modules_3d(self):
-        """Llama a la función de visualización 3D con todos los módulos de todos los subespacios y el Environment como suelo si existe."""
+        """Llama a la función de visualización 3D con todos los módulos de todos los subespacios, el Center y el Environment como suelo si existe."""
         from visualization_3d import draw_modules_3d
         all_modules = []
         for subspace in self.exterior_space.get_subspaces():
             all_modules.extend(subspace.get_modules())
-        if all_modules:
-            draw_modules_3d(all_modules, title="Visualización 3D de Módulos en ExteriorSpace", environment=self.environment)
+        if all_modules or self.center:
+            center_width = float(self.center.inputs.get('Space_X', 100))
+            center_height = float(self.center.inputs.get('Space_Y', 50))
+            draw_modules_3d(all_modules, title="Visualización 3D de Módulos en ExteriorSpace", environment=self.environment, center=self.center, center_width=center_width, center_height=center_height)
         else:
             QMessageBox.information(self, "Sin módulos", "No hay módulos para visualizar en 3D.")
 

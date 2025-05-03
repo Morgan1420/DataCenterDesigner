@@ -79,14 +79,13 @@ class ExteriorScreen(QWidget):
                 module_y = subspace.y + module.y
                 
                 # Use the actual module size for drawing
-                module_width = module.size_x
-                module_height = module.size_y
-                
-                # Only add the module if it has a valid size
-                if module_width > 0 and module_height > 0:
-                    module_rect = QGraphicsRectItem(module_x, module_y, module_width, module_height)
-                    module_rect.setBrush(QColor(200, 100, 100))  # Red color for modules
-                    self.scene.addItem(module_rect)
+                # No need to check for zero size - if size is properly set from CSVs
+                module_rect = QGraphicsRectItem(module_x, module_y, module.size_x, module.size_y)
+                # Set RED color for modules (255, 0, 0)
+                module_rect.setBrush(QColor(255, 0, 0))  
+                # Add a black border to make it stand out
+                module_rect.setPen(QColor(0, 0, 0))
+                self.scene.addItem(module_rect)
 
     def _add_subspace(self):
         # Create a new subspace with default size
@@ -148,6 +147,7 @@ class ExteriorScreen(QWidget):
     def _populate_available_modules(self, available_modules_list, subspace: Subspace):
         available_modules_list.clear()
         for module in self.available_modules:
+            print(f"Module {module}")
             # Create a horizontal layout for each module item
             module_item_widget = QWidget()
             module_item_layout = QHBoxLayout()
@@ -256,16 +256,15 @@ class ExteriorScreen(QWidget):
             modules_in_subspace = subspace.get_modules() # Get modules again for drawing
             for module in modules_in_subspace:
                 # Use module.x and module.y set by subspace.add_module
-                # Use reasonable default sizes if module size is 0
-                module_width = module.size_x if module.size_x > 0 else 20
-                module_height = module.size_y if module.size_y > 0 else 20
-                
-                module_rect = QGraphicsRectItem(module.x, module.y, module_width, module_height)
-                module_rect.setBrush(QColor(200, 100, 100))
+                # Use the actual module size for drawing
+                module_rect = QGraphicsRectItem(module.x, module.y, module.size_x, module.size_y)
+                # Set RED color for modules (255, 0, 0) to match exterior space
+                module_rect.setBrush(QColor(255, 0, 0))
+                # Add a black border to make it stand out
+                module_rect.setPen(QColor(0, 0, 0))
                 subspace_scene.addItem(module_rect)
 
             # Force a refresh of the graphical view
-            # Get the view associated with this scene to potentially adjust its view range if needed
             view = subspace_scene.views()
             if view:
                  view[0].setSceneRect(subspace_scene.itemsBoundingRect()) # Adjust view to fit content

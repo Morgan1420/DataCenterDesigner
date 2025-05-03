@@ -1,7 +1,7 @@
 import sys
 import random
 from PySide6 import QtCore, QtWidgets, QtGui
-from PySide6.QtCore import Qt, QRectF
+from PySide6.QtCore import Qt, QRectF, Signal
 from PySide6.QtGui import QPen, QBrush, QColor, QPainter
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
@@ -10,13 +10,41 @@ from PySide6.QtWidgets import (
     QScrollArea, QFormLayout, QLineEdit, QSplitter, QGroupBox, QMessageBox,
     QDoubleSpinBox, QMenu
 )
+import math
 # Importar clases base necesarias de modules
-from modules import Module, Environment
+from modules import Module, Environment, Center
+
+# --- Subclase para el rectángulo del Center ---
+class CenterRectItem(QGraphicsRectItem):
+    def __init__(self, x, y, w, h, center_obj, parent_screen, unique_map_id):
+        super().__init__(x, y, w, h)
+        self.center_obj = center_obj
+        self.parent_screen = parent_screen
+        self.unique_map_id = unique_map_id
+        self.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable)
+        self.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable)
+        self.setBrush(QColor(255, 255, 150))
+        self.setPen(QPen(Qt.GlobalColor.black))
+        self.setZValue(0)
+        self.rotation_angle = 0
+        self.setAcceptHoverEvents(True)
+        self.oldPos = self.pos()
+
+    def mouseReleaseEvent(self, event):
+        super().mouseReleaseEvent(event)
+        # Al soltar, actualizar la posición del objeto Center
+        new_pos = self.scenePos()
+        self.center_obj.set_position(new_pos.x(), new_pos.y())
+        # Emitir señal de cambio
+        self.parent_screen.center_changed.emit(self.center_obj)
+        self.oldPos = new_pos
 
 # --- Pantalla de Configuración del Entorno ---
 class EnvironmentSetupScreen(QWidget):
+    environment_changed = Signal(object)  # Señal que envía el Environment activo
+    center_changed = Signal(object)  # Señal que envía el Center activo
     # Modificar constructor para aceptar todos los tipos de módulos de entorno
-    def __init__(self, available_envs, available_hpls, available_lpls, available_wcs, available_ars):
+    def __init__(self, available_envs, available_hpls, available_lpls, available_wcs, available_ars, available_centers=None):
         super().__init__()
         # Almacenar todas las listas de objetos disponibles
         self.available_items = {
@@ -24,13 +52,15 @@ class EnvironmentSetupScreen(QWidget):
             "HighPowerLine": available_hpls,
             "LowPowerLine": available_lpls,
             "WaterConnection": available_wcs,
-            "AccessRoad": available_ars
+            "AccessRoad": available_ars,
+            "Center": available_centers if available_centers is not None else []
         }
         
         # Diccionario unificado para guardar items añadidos al mapa {unique_id: (object, type_str)}
         self.active_items_on_map = {}
         self.map_item_counter = 0
         self.selected_map_item_unique_id = None
+        self.center_rect_map = {}  # Mapeo: unique_id -> QGraphicsRectItem para el Center
 
         self.setWindowTitle("Configuración del Entorno")
         main_layout = QHBoxLayout(self)
@@ -125,14 +155,23 @@ class EnvironmentSetupScreen(QWidget):
 
     def delete_selected_items(self):
         selected_items = self.scene.selectedItems()
+        environment_ids = []
+        to_delete = []
         for item in selected_items:
             if isinstance(item, QGraphicsTextItem):
                 item = item.parentItem()
             if isinstance(item, QGraphicsRectItem) and hasattr(item, 'unique_map_id'):
                 unique_id = getattr(item, 'unique_map_id', None)
                 if unique_id and unique_id in self.active_items_on_map:
-                    del self.active_items_on_map[unique_id]
-                self.scene.removeItem(item)
+                    obj, t = self.active_items_on_map[unique_id]
+                    if t == "Environment":
+                        environment_ids.append(unique_id)
+                    else:
+                        to_delete.append((item, unique_id))
+        # Eliminar solo los que no son Environment
+        for item, unique_id in to_delete:
+            del self.active_items_on_map[unique_id]
+            self.scene.removeItem(item)
         self.clear_details()
         self.populate_available_items()
 
@@ -142,6 +181,7 @@ class EnvironmentSetupScreen(QWidget):
         environment_exists = any(
             isinstance(obj, Environment) for obj, t in self.active_items_on_map.values()
         )
+        center_exists = any(isinstance(obj, Center) for obj, t in self.active_items_on_map.values())
         for item_type, item_list in self.available_items.items():
             if not item_list:
                 continue
@@ -164,10 +204,10 @@ class EnvironmentSetupScreen(QWidget):
                 add_button = QPushButton("+")
                 add_button.setFixedSize(30, 30)
                 add_button.setToolTip(f"Añadir '{item_obj.id}' ({item_type}) al mapa")
-                # Deshabilitar el botón si ya hay un Environment
-                if item_type == "Environment" and environment_exists:
+                # Deshabilitar el botón si ya hay un Environment o Center
+                if (item_type == "Environment" and environment_exists) or (item_type == "Center" and center_exists):
                     add_button.setEnabled(False)
-                    add_button.setToolTip("Solo puede haber un Environment en el mapa")
+                    add_button.setToolTip(f"Solo puede haber un {item_type} en el mapa")
                 else:
                     add_button.clicked.connect(lambda checked=False, obj=item_obj, type_str=item_type: self.add_item_to_map(obj, type_str))
 
@@ -221,7 +261,14 @@ class EnvironmentSetupScreen(QWidget):
                             pass
                     self.update_map_tooltip(unique_id, obj)
                     self.display_item_details(obj, "Environment")
+                    self.environment_changed.emit(obj)  # Emitir señal al actualizar
                     QMessageBox.information(self, "Actualizado", "Los parámetros numéricos del Environment han sido actualizados (sumados). Solo puede haber uno en el mapa.")
+                    return
+        # Si es Center y ya existe uno, no permitir añadir otro
+        if item_type_str == "Center":
+            for unique_id, (obj, t) in self.active_items_on_map.items():
+                if isinstance(obj, Center):
+                    QMessageBox.information(self, "Center", "Solo puede haber un Center en el mapa.")
                     return
         unique_map_id = f"{item_type_str}_{item_object.id}_{self.map_item_counter}"
         self.map_item_counter += 1
@@ -243,7 +290,15 @@ class EnvironmentSetupScreen(QWidget):
             # Centrar la línea en la escena
             x = (self.scene.width() - item_width) / 2
             y = (self.scene.height() - item_height) / 2
-        elif isinstance(item_object, Module):
+        elif isinstance(item_object, Center):
+            # Usar Space_X y Space_Y del Center para el tamaño
+            try:
+                item_width = max(min_size, self.available_items["Center"][0].inputs.get('Space_X'))
+                item_height = max(min_size, self.available_items["Center"][0].inputs.get('Space_Y'))
+            except Exception:
+                item_width = default_size_x
+                item_height = default_size_y
+        elif isinstance(item_object, Module) and not isinstance(item_object, Center):
             try:
                 space_x = float(item_object.inputs.get('Space_X', default_size_x))
                 space_y = float(item_object.inputs.get('Space_Y', default_size_y))
@@ -261,9 +316,11 @@ class EnvironmentSetupScreen(QWidget):
             except Exception:
                 item_width = default_size_x
                 item_height = default_size_y
+        
 
+        
         # Limitar tamaño máximo al de la escena menos márgenes (excepto PowerLine y AccessRoad)
-        if item_type_str not in ["HighPowerLine", "LowPowerLine", "AccessRoad", "WaterConnection"] and not isinstance(item_object, Environment):
+        if item_type_str not in ["HighPowerLine", "LowPowerLine", "AccessRoad", "WaterConnection", "Center"] and not isinstance(item_object, Environment):
             item_width = default_size_x
             item_height = default_size_y
 
@@ -277,28 +334,51 @@ class EnvironmentSetupScreen(QWidget):
             color = QtGui.QColor(150, 200, 255)
         elif "AccessRoad" in item_type_str:
             color = QtGui.QColor(220, 220, 220)
+        elif "Center" in item_type_str:
+            color = QtGui.QColor(255, 255, 150)
 
         # Calcular posición
-        if item_type_str == "Environment":
-            x = -int(item_width) / 4
-            y = -int(item_height) / 4
+        if item_type_str == "Environment" or item_type_str == "Center":
+            x = -250.0
+            y = -125.0
+            # Set la posición del Environment en la variable
+
+            if isinstance(item_object, Environment):
+                try:
+                    self.available_items["Environment"][0].parameters['x'] = x
+                    self.available_items["Environment"][0].parameters['y'] = y
+                except Exception:
+                    print(f"  Advertencia: No se pudo obtener posición numérica para {item_object.id}. Usando posición por defecto.")
+            else:
+                print(self.available_items["Center"][0])
+                try:
+                    self.available_items["Center"][0].inputs['x'] = x
+                    self.available_items["Center"][0].inputs['y'] = y
+                except Exception:
+                    print(f"  Advertencia: No se pudo obtener posición numérica para {item_object.id}. Usando posición por defecto.")
+
+            
+            
+            
         else:
             x, y = self._find_non_overlapping_position(item_width, item_height)
 
-        rect_item = QGraphicsRectItem(x, y, item_width, item_height)
-        rect_item.setBrush(color)
-        rect_item.setPen(QPen(Qt.GlobalColor.black))
-        rect_item.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable)
-        rect_item.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable)
-        rect_item.setToolTip(f"{item_type_str}: {item_object.id}")
+        # --- Usar CenterRectItem solo para el Center ---
+        if item_type_str == "Center":
+            rect_item = CenterRectItem(x, y, item_width, item_height, item_object, self, unique_map_id)
+            self.center_rect_map[unique_map_id] = rect_item
+        else:
+            rect_item = QGraphicsRectItem(x, y, item_width, item_height)
+            rect_item.setBrush(color)
+            rect_item.setPen(QPen(Qt.GlobalColor.black))
+            rect_item.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable)
+            rect_item.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable)
+            rect_item.setZValue(0)
+            rect_item.rotation_angle = 0
+            rect_item.setAcceptHoverEvents(True)
         rect_item.unique_map_id = unique_map_id
-        rect_item.rotation_angle = 0
-        # Fijar el punto de rotación en el centro
-        if item_type_str in ["HighPowerLine", "LowPowerLine", "AccessRoad", "WaterConnection"]:
-            rect_item.setTransformOriginPoint(item_width/2, item_height/2)
 
         # --- Añadir soporte para menú contextual (clic derecho) ---
-        rect_item.setAcceptHoverEvents(True)
         rect_item.contextMenuEvent = lambda event, item=rect_item: self.show_item_context_menu(event, item)
 
         # --- Siempre poner el Environment debajo ---
@@ -329,6 +409,11 @@ class EnvironmentSetupScreen(QWidget):
                 self._powerline_shortcut_connected = True
                 self._powerline_shortcut = QtGui.QShortcut(QtGui.QKeySequence("Ctrl+R"), self)
                 self._powerline_shortcut.activated.connect(self.rotate_selected_powerline)
+
+        if item_type_str == "Environment":
+            self.environment_changed.emit(item_object)  # Emitir señal al añadir
+
+    
 
     def on_map_item_selected(self):
         selected_items = self.scene.selectedItems()
@@ -497,6 +582,7 @@ class EnvironmentSetupScreen(QWidget):
                 if key in ['Space_X', 'Space_Y']:
                     self.resize_map_item(unique_map_id, item_object)
                 self.update_map_tooltip(unique_map_id, item_object)
+                self.environment_changed.emit(item_object)  # Emitir señal al editar
             elif param_type == "input" and isinstance(item_object, Module):
                 print(f"Actualizando Input {item_object.id}: {key} = {new_value}")
                 try:
@@ -509,6 +595,9 @@ class EnvironmentSetupScreen(QWidget):
                     item_object.inputs[key] = new_value
                 if key in ['Space_X', 'Space_Y']:
                     self.resize_map_item(unique_map_id, item_object)
+                    # Si es Center, emitir señal de cambio
+                    if isinstance(item_object, Center):
+                        self.center_changed.emit(item_object)
                 self.update_map_tooltip(unique_map_id, item_object)
             elif param_type == "output" and isinstance(item_object, Module):
                 print(f"Actualizando Output {item_object.id}: {key} = {new_value}")
@@ -523,6 +612,8 @@ class EnvironmentSetupScreen(QWidget):
                 # Si el output es Space_X o Space_Y, también redimensionar
                 if key in ['Space_X', 'Space_Y']:
                     self.resize_map_item(unique_map_id, item_object)
+                    if isinstance(item_object, Center):
+                        self.center_changed.emit(item_object)
                 self.update_map_tooltip(unique_map_id, item_object)
             else:
                 print(f"Advertencia: Tipo de parámetro '{param_type}' o tipo de objeto '{item_type_str}' no manejado para la actualización.")
@@ -590,6 +681,9 @@ class EnvironmentSetupScreen(QWidget):
                     text_item.setPos(text_x, text_y)
                 print(f"Item {item_object.id} redimensionado a {new_width}x{new_height}")
                 self.scene.update()
+                # Si es Center, emitir señal de cambio
+                if isinstance(item_object, Center):
+                    self.center_changed.emit(item_object)
                 break
 
     def clear_details(self):
@@ -648,22 +742,32 @@ class EnvironmentSetupScreen(QWidget):
         self.scene.update()
 
     def show_item_context_menu(self, event, rect_item):
+        unique_id = getattr(rect_item, 'unique_map_id', None)
+        if unique_id and unique_id in self.active_items_on_map:
+            obj, t = self.active_items_on_map[unique_id]
+            if t == "Environment":
+                # No mostrar menú contextual para eliminar Environment
+                return
         menu = QMenu()
         delete_action = menu.addAction("Eliminar")
         action = menu.exec(event.screenPos())
         if action == delete_action:
-            unique_id = getattr(rect_item, 'unique_map_id', None)
             if unique_id and unique_id in self.active_items_on_map:
-                # Eliminar del diccionario y de la escena
                 del self.active_items_on_map[unique_id]
                 self.scene.removeItem(rect_item)
                 self.clear_details()
                 self.populate_available_items()
-            # Cerrar el rectángulo de selección si está activo
             if hasattr(self, 'view') and hasattr(self.view, '_rubber_band_active'):
                 self.view._rubber_band_active = False
                 self.view._rubber_band_rect = None
                 self.view.viewport().update()
+
+    def get_active_environment(self):
+        # Devuelve el primer Environment en el mapa, o None si no hay
+        for obj, t in self.active_items_on_map.values():
+            if isinstance(obj, Environment):
+                return obj
+        return None
 
 class MapGraphicsView(QGraphicsView):
     def __init__(self, *args, **kwargs):

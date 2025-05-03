@@ -4,7 +4,7 @@ from modules import (Module, ModuleInterior, Environment,
                    HighPowerLine, LowPowerLine, _load_module_like, load_exterior_modules,
                    load_interior_modules, load_environment_variables,
                    load_high_power_lines, load_low_power_lines, WaterConnection, AccessRoad,
-                   load_water_connections, load_access_roads) # Añadido WaterConnection, AccessRoad, load_water_connections, load_access_roads
+                   load_water_connections, load_access_roads, Center, load_center) # Añadido Center, load_center
 import os # Keep os import if needed for path joining below
 
 
@@ -22,7 +22,7 @@ from interior_screen import InteriorScreen
 
 # --- Ventana Principal con Pestañas ---
 class MainWindow(QMainWindow):
-    def __init__(self, env_params, hpls, lpls, wcs, ars, ext_mods, int_mods):
+    def __init__(self, env_params, hpls, lpls, wcs, ars, ext_mods, int_mods, centers):
         super().__init__()
         self.setWindowTitle("Data Center Designer")
 
@@ -30,18 +30,39 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.tab_widget)
 
         # Crear instancia de la pantalla de entorno y añadirla a la primera pestaña
-        self.environment_screen = EnvironmentSetupScreen(env_params, hpls, lpls, wcs, ars)
+        self.environment_screen = EnvironmentSetupScreen(env_params, hpls, lpls, wcs, ars, centers)
         self.tab_widget.addTab(self.environment_screen, "Entorno")
 
-        # Crear instancia de la pantalla exterior y añadirla a la segunda pestaña
-        self.exterior_space = ExteriorSpace(2000, 1000)  # Tamaño inicial del espacio exterior
-        self.exterior_modules = load_exterior_modules("CSV/ExteriorModules/")  # Cargar módulos exteriores
-        self.exterior_screen = ExteriorScreen(self.exterior_space, self.exterior_modules)
+        # Obtener el Environment inicial (si existe)
+        env = self.environment_screen.get_active_environment()
+        env_size_x = float(env.parameters.get('Space_X', 1000)) if env else 1000
+        env_size_y = float(env.parameters.get('Space_Y', 500)) if env else 500
+        self.exterior_space = ExteriorSpace(env_size_x, env_size_y)
+        self.exterior_modules = load_exterior_modules("CSV/ExteriorModules/")
+        center = centers[0] if centers else None
+        self.exterior_screen = ExteriorScreen(self.exterior_space, self.exterior_modules, environment=env, center=center)
         self.tab_widget.addTab(self.exterior_screen, "Exterior")
 
         # Crear instancia de la pantalla interior y añadirla a la tercera pestaña
         self.interior_screen = InteriorScreen(int_mods)
         self.tab_widget.addTab(self.interior_screen, "Interior")
+
+        # Conectar la señal para actualización en tiempo real
+        self.environment_screen.environment_changed.connect(self.on_environment_changed)
+        self.environment_screen.center_changed.connect(self.on_center_changed)
+
+    def on_environment_changed(self, environment):
+        if environment:
+            try:
+                size_x = float(environment.parameters.get('Space_X', 1000))
+                size_y = float(environment.parameters.get('Space_Y', 500))
+                self.exterior_space.resize(size_x, size_y)
+                self.exterior_screen.set_environment(environment)
+            except Exception as e:
+                print(f"Error actualizando exterior: {e}")
+
+    def on_center_changed(self, center):
+        self.exterior_screen.set_center(center)
 
 
 if __name__ == "__main__":
@@ -67,6 +88,11 @@ if __name__ == "__main__":
     access_roads = load_access_roads(ar_file_path)
     if not os.path.exists(ar_file_path):
          print(f"Advertencia: No se encontró el archivo de carreteras de acceso en {ar_file_path_correct} ni en {ar_file_path_typo}")
+
+    # Cargar Center (solo uno)
+    center_file_path = os.path.join(env_modules_dir, 'Center.csv')
+    center_module = load_center(center_file_path)
+    centers = [center_module] if center_module else []
 
     # Cargar Módulos Exteriores
     exterior_modules_dir = os.path.join(csv_base_dir, 'ExteriorModules')
@@ -108,13 +134,14 @@ if __name__ == "__main__":
     # --- Crear y Mostrar Ventana Principal ---
     # Pasar todos los datos cargados a la ventana principal
     main_window = MainWindow(
-        environment_params,
+        environment_params,  # Solo environments
         high_power_lines,
         low_power_lines,
         water_connections,
         access_roads,
         exterior_modules,
-        interior_modules
+        interior_modules,
+        centers  # Añadir centers como argumento separado
     )
     main_window.showMaximized()
     main_window.show()

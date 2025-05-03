@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QSize, QRectF, QPointF
 from PySide6.QtGui import QColor, QPen, QBrush, QCursor, QPainter, QPolygonF, QStandardItemModel
 from screens.exterior_screen_modules import ExteriorSpace, Subspace
-from modules import Module
+from modules import Module, distancia_entre_modulos
 
 # Constants
 PADDING = 10  # Padding between modules (should match padding in exterior_screen_modules.py)
@@ -761,12 +761,14 @@ class ZoomableGraphicsView(QGraphicsView):
 
 
 class ExteriorScreen(QWidget):
-    def __init__(self, exterior_space: ExteriorSpace, available_modules: list[Module]):
+    def __init__(self, exterior_space: ExteriorSpace, available_modules: list[Module], environment=None, center=None):
         super().__init__()
         if not isinstance(exterior_space, ExteriorSpace):
             raise TypeError(f"Expected ExteriorSpace object, but received {type(exterior_space)}")
         self.exterior_space: ExteriorSpace = exterior_space
         self.available_modules = available_modules
+        self.environment = environment  # Guardar referencia al Environment
+        self.center = center  # Guardar referencia al Center
         self.subspace_scenes = {}  # Dictionary to store scenes: {(x, y): scene}
         self.subspace_module_lists = {}  # Dictionary to store module lists: {(x, y): list_widget}
         self.module_connections = []  # List of all module connections
@@ -810,6 +812,11 @@ class ExteriorScreen(QWidget):
         self.bottom_layout.addWidget(self.add_subspace_button)
         self.add_subspace_button.clicked.connect(self._add_subspace)
 
+        # Botón para visualizar en 3D los módulos
+        self.visualize_3d_button = QPushButton("Visualizar en 3D")
+        self.bottom_layout.addWidget(self.visualize_3d_button)
+        self.visualize_3d_button.clicked.connect(self._visualize_modules_3d)
+
         # Scroll area for subspace editors
         self.scroll_area = QScrollArea()
         self.scroll_area_widget = QWidget()
@@ -820,14 +827,65 @@ class ExteriorScreen(QWidget):
         self.scroll_area.setMinimumHeight(500)  # Set minimum height for the scroll area
         self.bottom_layout.addWidget(self.scroll_area)
 
+    def set_center(self, center):
+        self.center = center
+        #print(f"[ExteriorScreen] Center actualizado: pos=({self.center.x}, {self.center.y})")
+        self._draw_space()  # Forzar redibujado siempre
+
+    def set_environment(self, environment):
+        self.environment = environment
+        if environment:
+            try:
+                size_x = float(environment.parameters.get('Space_X', 1000))
+                size_y = float(environment.parameters.get('Space_Y', 500))
+                self.exterior_space.resize(size_x, size_y)
+            except Exception:
+                pass
+        self._draw_space()
+
     def _draw_space(self):
         self.scene.clear()
 
-        # Draw the exterior space
-        space_rect = QGraphicsRectItem(0, 0, self.exterior_space.get_size_x(), self.exterior_space.get_size_y())
-        space_rect.setBrush(QColor(200, 200, 200))
-        self.scene.addItem(space_rect)
+        # Dibujar el rectángulo del Environment si existe
+        env_width = None
+        env_height = None
+        if self.environment:
+            try:
+                env_width = float(self.environment.parameters.get('Space_X', 1000))
+                env_height = float(self.environment.parameters.get('Space_Y', 500))
+                env_rect = QGraphicsRectItem(0, 0, env_width, env_height)
+                env_rect.setBrush(QColor(180, 220, 180))
+                self.scene.addItem(env_rect)
+            except Exception:
+                env_width = self.exterior_space.get_size_x()
+                env_height = self.exterior_space.get_size_y()
+        else:
+            # Draw the exterior space (fallback)
+            env_width = self.exterior_space.get_size_x()
+            env_height = self.exterior_space.get_size_y()
+            space_rect = QGraphicsRectItem(0, 0, env_width, env_height)
+            space_rect.setBrush(QColor(200, 200, 200))
+            self.scene.addItem(space_rect)
 
+        # Dibujar el Center si existe
+        if self.center:
+            try:
+                center_width = float(self.center.inputs.get('Space_X', 100))
+                center_height = float(self.center.inputs.get('Space_Y', 50))
+                # Usar la posición relativa respecto al Environment
+                if self.environment:
+                    center_x, center_y = self.center.get_position(self.environment)
+                else:
+                    center_x, center_y = getattr(self.center, 'x', 0), getattr(self.center, 'y', 0)
+                center_rect = QGraphicsRectItem(center_x, center_y, center_width, center_height)
+                center_rect.setBrush(QColor(255, 255, 150))
+                center_rect.setPen(QColor(180, 180, 80))
+                self.scene.addItem(center_rect)
+            except Exception as e:
+                print(f"No se pudo dibujar el Center: {e}")
+        else:
+            print("No se ha definido un Center para dibujar.")
+            
         # Draw each subspace and its modules
         for subspace in self.exterior_space.get_subspaces():
             # Draw the subspace boundary
@@ -1166,6 +1224,28 @@ class ExteriorScreen(QWidget):
         else:
             print(f"Error: Could not find stored components for subspace {subspace_coords} during removal.")
 
+
+    def _visualize_modules_3d(self):
+        """Llama a la función de visualización 3D con todos los módulos de todos los subespacios, el Center y el Environment como suelo si existe."""
+        from visualization_3d import draw_modules_3d
+        all_modules = []
+        for subspace in self.exterior_space.get_subspaces():
+            all_modules.extend(subspace.get_modules())
+        if all_modules or self.center:
+            center_width = float(self.center.inputs.get('Space_X', 100))
+            center_height = float(self.center.inputs.get('Space_Y', 50))
+            draw_modules_3d(all_modules, title="Visualización 3D de Módulos en ExteriorSpace", environment=self.environment, center=self.center, center_width=center_width, center_height=center_height)
+        else:
+            QMessageBox.information(self, "Sin módulos", "No hay módulos para visualizar en 3D.")
+
+    def distancia_entre_center_y_modulo(self, modulo):
+        """
+        Devuelve la distancia entre el Center y un módulo (en el exterior), usando el Environment si está disponible.
+        """
+        if self.center is None or modulo is None:
+            return None
+        return distancia_entre_modulos(self.center, modulo, self.environment)
+
     def add_module_connection(self, connection, connection_line):
         """Add a new module connection to the tracking system."""
         self.module_connections.append(connection)
@@ -1437,3 +1517,4 @@ class ExteriorScreen(QWidget):
             
             # Update the main space view
             self._draw_space()
+

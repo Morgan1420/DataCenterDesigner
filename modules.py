@@ -1,5 +1,6 @@
 import pandas as pd
 import os
+import math
 
 # --- Module Classes ---
 class Module:
@@ -83,6 +84,20 @@ class AccessRoad(Module):
 class Center(Module):
     def __init__(self, id, inputs, outputs, size_x, size_y):
         super().__init__(id, inputs, outputs, size_x, size_y)
+        self.x = 0.0  # Posición X absoluta (solo para compatibilidad)
+        self.y = 0.0  # Posición Y absoluta (solo para compatibilidad)
+        
+
+    def set_position(self, x: float, y: float, env=None):
+        self.x = x
+        self.y = y
+
+            
+        
+
+    def get_position(self, env=None) -> tuple[float, float]:
+        return self.x, self.y
+        
 
     def __repr__(self):
         return super().__repr__().replace("Module(", "Center(", 1)
@@ -333,3 +348,12 @@ def load_center(file_path):
     size_x = float(inputs.get('Space_X', 0.0))
     size_y = float(inputs.get('Space_Y', 0.0))
     return Center(id="Center", inputs=inputs, outputs={}, size_x=size_x, size_y=size_y)
+
+def distancia_entre_modulos(obj1, obj2, env=None):
+    """
+    Calcula la distancia euclidiana entre dos módulos (o Center).
+    Si se pasa un Environment, usa la posición relativa respecto a ese entorno.
+    """
+    x1, y1 = obj1.get_position(env)
+    x2, y2 = obj2.get_position(env)
+    return math.hypot(x2 - x1, y2 - y1)

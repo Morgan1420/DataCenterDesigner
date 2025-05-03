@@ -39,7 +39,8 @@ class MainWindow(QMainWindow):
         env_size_y = float(env.parameters.get('Space_Y', 500)) if env else 500
         self.exterior_space = ExteriorSpace(env_size_x, env_size_y)
         self.exterior_modules = load_exterior_modules("CSV/ExteriorModules/")
-        self.exterior_screen = ExteriorScreen(self.exterior_space, self.exterior_modules, environment=env)
+        center = centers[0] if centers else None
+        self.exterior_screen = ExteriorScreen(self.exterior_space, self.exterior_modules, environment=env, center=center)
         self.tab_widget.addTab(self.exterior_screen, "Exterior")
 
         # Crear instancia de la pantalla interior y añadirla a la tercera pestaña
@@ -48,6 +49,7 @@ class MainWindow(QMainWindow):
 
         # Conectar la señal para actualización en tiempo real
         self.environment_screen.environment_changed.connect(self.on_environment_changed)
+        self.environment_screen.center_changed.connect(self.on_center_changed)
 
     def on_environment_changed(self, environment):
         if environment:
@@ -58,6 +60,9 @@ class MainWindow(QMainWindow):
                 self.exterior_screen.set_environment(environment)
             except Exception as e:
                 print(f"Error actualizando exterior: {e}")
+
+    def on_center_changed(self, center):
+        self.exterior_screen.set_center(center)
 
 
 if __name__ == "__main__":

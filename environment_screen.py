@@ -10,12 +10,39 @@ from PySide6.QtWidgets import (
     QScrollArea, QFormLayout, QLineEdit, QSplitter, QGroupBox, QMessageBox,
     QDoubleSpinBox, QMenu
 )
+import math
 # Importar clases base necesarias de modules
 from modules import Module, Environment, Center
+
+# --- Subclase para el rectángulo del Center ---
+class CenterRectItem(QGraphicsRectItem):
+    def __init__(self, x, y, w, h, center_obj, parent_screen, unique_map_id):
+        super().__init__(x, y, w, h)
+        self.center_obj = center_obj
+        self.parent_screen = parent_screen
+        self.unique_map_id = unique_map_id
+        self.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable)
+        self.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable)
+        self.setBrush(QColor(255, 255, 150))
+        self.setPen(QPen(Qt.GlobalColor.black))
+        self.setZValue(0)
+        self.rotation_angle = 0
+        self.setAcceptHoverEvents(True)
+        self.oldPos = self.pos()
+
+    def mouseReleaseEvent(self, event):
+        super().mouseReleaseEvent(event)
+        # Al soltar, actualizar la posición del objeto Center
+        new_pos = self.scenePos()
+        self.center_obj.set_position(new_pos.x(), new_pos.y())
+        # Emitir señal de cambio
+        self.parent_screen.center_changed.emit(self.center_obj)
+        self.oldPos = new_pos
 
 # --- Pantalla de Configuración del Entorno ---
 class EnvironmentSetupScreen(QWidget):
     environment_changed = Signal(object)  # Señal que envía el Environment activo
+    center_changed = Signal(object)  # Señal que envía el Center activo
     # Modificar constructor para aceptar todos los tipos de módulos de entorno
     def __init__(self, available_envs, available_hpls, available_lpls, available_wcs, available_ars, available_centers=None):
         super().__init__()
@@ -33,6 +60,7 @@ class EnvironmentSetupScreen(QWidget):
         self.active_items_on_map = {}
         self.map_item_counter = 0
         self.selected_map_item_unique_id = None
+        self.center_rect_map = {}  # Mapeo: unique_id -> QGraphicsRectItem para el Center
 
         self.setWindowTitle("Configuración del Entorno")
         main_layout = QHBoxLayout(self)
@@ -271,7 +299,6 @@ class EnvironmentSetupScreen(QWidget):
                 item_width = default_size_x
                 item_height = default_size_y
         elif isinstance(item_object, Module) and not isinstance(item_object, Center):
-            print("jhdask")
             try:
                 space_x = float(item_object.inputs.get('Space_X', default_size_x))
                 space_y = float(item_object.inputs.get('Space_Y', default_size_y))
@@ -311,26 +338,47 @@ class EnvironmentSetupScreen(QWidget):
             color = QtGui.QColor(255, 255, 150)
 
         # Calcular posición
-        if item_type_str == "Environment":
-            x = -int(item_width) / 4
-            y = -int(item_height) / 4
+        if item_type_str == "Environment" or item_type_str == "Center":
+            x = -250.0
+            y = -125.0
+            # Set la posición del Environment en la variable
+
+            if isinstance(item_object, Environment):
+                try:
+                    self.available_items["Environment"][0].parameters['x'] = x
+                    self.available_items["Environment"][0].parameters['y'] = y
+                except Exception:
+                    print(f"  Advertencia: No se pudo obtener posición numérica para {item_object.id}. Usando posición por defecto.")
+            else:
+                print(self.available_items["Center"][0])
+                try:
+                    self.available_items["Center"][0].inputs['x'] = x
+                    self.available_items["Center"][0].inputs['y'] = y
+                except Exception:
+                    print(f"  Advertencia: No se pudo obtener posición numérica para {item_object.id}. Usando posición por defecto.")
+
+            
+            
+            
         else:
             x, y = self._find_non_overlapping_position(item_width, item_height)
 
-        rect_item = QGraphicsRectItem(x, y, item_width, item_height)
-        rect_item.setBrush(color)
-        rect_item.setPen(QPen(Qt.GlobalColor.black))
-        rect_item.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable)
-        rect_item.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable)
-        rect_item.setToolTip(f"{item_type_str}: {item_object.id}")
+        # --- Usar CenterRectItem solo para el Center ---
+        if item_type_str == "Center":
+            rect_item = CenterRectItem(x, y, item_width, item_height, item_object, self, unique_map_id)
+            self.center_rect_map[unique_map_id] = rect_item
+        else:
+            rect_item = QGraphicsRectItem(x, y, item_width, item_height)
+            rect_item.setBrush(color)
+            rect_item.setPen(QPen(Qt.GlobalColor.black))
+            rect_item.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable)
+            rect_item.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable)
+            rect_item.setZValue(0)
+            rect_item.rotation_angle = 0
+            rect_item.setAcceptHoverEvents(True)
         rect_item.unique_map_id = unique_map_id
-        rect_item.rotation_angle = 0
-        # Fijar el punto de rotación en el centro
-        if item_type_str in ["HighPowerLine", "LowPowerLine", "AccessRoad", "WaterConnection"]:
-            rect_item.setTransformOriginPoint(item_width/2, item_height/2)
 
         # --- Añadir soporte para menú contextual (clic derecho) ---
-        rect_item.setAcceptHoverEvents(True)
         rect_item.contextMenuEvent = lambda event, item=rect_item: self.show_item_context_menu(event, item)
 
         # --- Siempre poner el Environment debajo ---
@@ -364,6 +412,8 @@ class EnvironmentSetupScreen(QWidget):
 
         if item_type_str == "Environment":
             self.environment_changed.emit(item_object)  # Emitir señal al añadir
+
+    
 
     def on_map_item_selected(self):
         selected_items = self.scene.selectedItems()
@@ -545,6 +595,9 @@ class EnvironmentSetupScreen(QWidget):
                     item_object.inputs[key] = new_value
                 if key in ['Space_X', 'Space_Y']:
                     self.resize_map_item(unique_map_id, item_object)
+                    # Si es Center, emitir señal de cambio
+                    if isinstance(item_object, Center):
+                        self.center_changed.emit(item_object)
                 self.update_map_tooltip(unique_map_id, item_object)
             elif param_type == "output" and isinstance(item_object, Module):
                 print(f"Actualizando Output {item_object.id}: {key} = {new_value}")
@@ -559,6 +612,8 @@ class EnvironmentSetupScreen(QWidget):
                 # Si el output es Space_X o Space_Y, también redimensionar
                 if key in ['Space_X', 'Space_Y']:
                     self.resize_map_item(unique_map_id, item_object)
+                    if isinstance(item_object, Center):
+                        self.center_changed.emit(item_object)
                 self.update_map_tooltip(unique_map_id, item_object)
             else:
                 print(f"Advertencia: Tipo de parámetro '{param_type}' o tipo de objeto '{item_type_str}' no manejado para la actualización.")
@@ -626,6 +681,9 @@ class EnvironmentSetupScreen(QWidget):
                     text_item.setPos(text_x, text_y)
                 print(f"Item {item_object.id} redimensionado a {new_width}x{new_height}")
                 self.scene.update()
+                # Si es Center, emitir señal de cambio
+                if isinstance(item_object, Center):
+                    self.center_changed.emit(item_object)
                 break
 
     def clear_details(self):

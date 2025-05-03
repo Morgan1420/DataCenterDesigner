@@ -113,7 +113,7 @@ if __name__ == "__main__":
         exterior_modules,
         interior_modules
     )
-    main_window.resize(1000, 700)
+    main_window.showMaximized()
     main_window.show()
 
     sys.exit(app.exec())

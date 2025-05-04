@@ -3,7 +3,7 @@ from PySide6.QtWidgets import (
     QGraphicsRectItem, QGroupBox, QScrollArea, QSplitter, QListWidgetItem, QGraphicsItem, QGraphicsEllipseItem,
     QGraphicsPolygonItem, QMenu, QTreeView, QGraphicsLineItem, QLineEdit
 )
-from PySide6.QtCore import Qt, QSize, QRectF, QPointF
+from PySide6.QtCore import Qt, QSize, QRectF, QPointF, Signal
 from PySide6.QtGui import QColor, QPen, QBrush, QCursor, QPainter, QPolygonF, QStandardItemModel
 from screens.exterior_screen_modules import ExteriorSpace, Subspace
 from modules import Module, distancia_entre_modulos
@@ -202,6 +202,10 @@ class DraggableModuleItem(QGraphicsRectItem):
         self.setZValue(1)  # Ensure modules appear above the subspace background
         self.start_pos = QPointF(x, y)
         self.is_moving = False  # Flag to track if we're in move mode
+        self.width = width
+        self.hasBeenMoved = False  # Flag to track if the module has been moved
+        self.moduleInitialY= self.module.y
+        self.moduleInitialX= self.module.x
         
         # Connection drawing variables
         self.temp_connection_line = None  # Temporary line shown while dragging
@@ -618,8 +622,15 @@ class DraggableModuleItem(QGraphicsRectItem):
             return new_pos
         elif change == QGraphicsItem.ItemPositionHasChanged and self.scene():
             # After the module has been moved, update the module's position in the data model
-            self.module.x = self.x()
-            self.module.y = self.y()
+            self.module.x = self.x() + self.moduleInitialX
+            self.module.y = self.y() + self.moduleInitialY
+               
+            
+                
+            
+            # Emitir señal de movimiento
+            if hasattr(self.parent_screen, 'module_moved'):
+                self.parent_screen.module_moved.emit(self.module, self.subspace)
             
             # Clear all connections and reset IOs when a module is moved
             self.parent_screen._clear_all_connections()
@@ -638,6 +649,10 @@ class DraggableModuleItem(QGraphicsRectItem):
             # Recalculate unconnected IO for the subspace
             self.subspace.calculate_unconnected_io(self.parent_screen.module_connections)
             self.parent_screen._redraw_subspace_io_indicators(self.subspace)
+            
+            # --- NUEVO: Redibujar el ExteriorSpace en tiempo real ---
+            if hasattr(self.parent_screen, '_draw_space'):
+                self.parent_screen._draw_space()
             
         return super().itemChange(change, value)
 
@@ -680,8 +695,13 @@ class DraggableModuleItem(QGraphicsRectItem):
             self.setCursor(QCursor(Qt.OpenHandCursor))
             # End the move operation
             self.is_moving = False
+            # Sincronizar la posición del modelo de datos con la posición visual
+            self.module.set_position(self.x(), self.y())
+            # Redibujar el exterior para reflejar la nueva posición
+            if hasattr(self.parent_screen, '_draw_space'):
+                self.parent_screen._draw_space()
         super().mouseReleaseEvent(event)
-            
+
     def show_context_menu(self, event):
         menu = QMenu()
         
@@ -761,6 +781,7 @@ class ZoomableGraphicsView(QGraphicsView):
 
 
 class ExteriorScreen(QWidget):
+    module_moved = Signal(object, object)  # (module, subspace)
     def __init__(self, exterior_space: ExteriorSpace, available_modules: list[Module], environment=None, center=None):
         super().__init__()
         if not isinstance(exterior_space, ExteriorSpace):
@@ -826,6 +847,9 @@ class ExteriorScreen(QWidget):
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setMinimumHeight(500)  # Set minimum height for the scroll area
         self.bottom_layout.addWidget(self.scroll_area)
+        
+        # En el constructor de ExteriorScreen o donde se crea el subspace editor:
+        self.module_moved.connect(self._on_module_moved)
 
     def set_center(self, center):
         self.center = center
@@ -900,10 +924,20 @@ class ExteriorScreen(QWidget):
             for module in subspace.get_modules():
                 module_x = subspace.x + module.x  # Absolute position = subspace position + module relative position
                 module_y = subspace.y + module.y
+
+                print(f"Drawing module {module.id} at ({module_x}, {module_y})")
+                print(f"Module y: {module.y}")
+                print(f"Module x: {module.x}")
+                print(f"Subspace y: {subspace.y}")
+                print(f"Subspace x: {subspace.x}")
+                
+                # Si el módulo está en la parte inferior del subspace, darle el ancho del subspace
+                is_bottom = abs((module.y + module.size_y) - subspace.size_y) < 2  # tolerancia de 2 px
+                draw_width = subspace.size_x if is_bottom else module.size_x
                 
                 # Use the actual module size for drawing
                 # No need to check for zero size - if size is properly set from CSVs
-                module_rect = QGraphicsRectItem(module_x, module_y, module.size_x, module.size_y)
+                module_rect = QGraphicsRectItem(module_x, module_y, draw_width, module.size_y)
                 # Set RED color for modules (255, 0, 0)
                 module_rect.setBrush(QColor(255, 0, 0))  
                 # Add a black border to make it stand out
@@ -1517,4 +1551,8 @@ class ExteriorScreen(QWidget):
             
             # Update the main space view
             self._draw_space()
+            
+    def _on_module_moved(self, module, subspace):
+        # Aquí puedes actualizar solo el módulo movido o redibujar todo
+        self._draw_space()
 

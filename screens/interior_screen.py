@@ -1233,11 +1233,7 @@ class InteriorScreen(QWidget):
         from visualization_3d import visualize_3d
         visualize_3d(all_modules, self.interior_space, self.environment, self.center)
         
-    def _open_subspace_wizard(self):
-        """Open the Subspace Wizard window"""
-        from screens.subspaceWizzard import SubspaceWizzard
-        self.subspace_wizard = SubspaceWizzard(self)
-        self.subspace_wizard.show()
+
         
     def _clear_all_connections(self):
         """Clear all module connections and their visual representations."""
@@ -1532,7 +1528,7 @@ class InteriorScreen(QWidget):
 
     def _open_subspace_wizard(self):
         """Open the Subspace Wizard window to help with designing subspaces"""
-        from screens.subspaceWizzard import SubspaceWizard
+        from screens.interior_subspaceWizard import SubspaceWizard
         # Create and show the Subspace Wizard window
         self.subspace_wizard = SubspaceWizard(self)
         self.subspace_wizard.show()

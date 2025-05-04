@@ -838,6 +838,11 @@ class ExteriorScreen(QWidget):
         self.bottom_layout.addWidget(self.visualize_3d_button)
         self.visualize_3d_button.clicked.connect(self._visualize_modules_3d)
 
+        # Botón para el Asistente de Subespacios
+        self.subspace_wizard_button = QPushButton("Subspace Wizard")
+        self.bottom_layout.addWidget(self.subspace_wizard_button)
+        self.subspace_wizard_button.clicked.connect(self._open_subspace_wizard)
+
         # Scroll area for subspace editors
         self.scroll_area = QScrollArea()
         self.scroll_area_widget = QWidget()
@@ -944,10 +949,13 @@ class ExteriorScreen(QWidget):
                 module_rect.setPen(QColor(0, 0, 0))
                 self.scene.addItem(module_rect)
 
-    def _add_subspace(self):
+    def _add_subspace(self, subspace: Subspace = None): 
         # Create a new subspace with default size
-        new_subspace = Subspace(50, 50)
-
+        if subspace is None: 
+            new_subspace = Subspace(50, 50)
+        else:
+            new_subspace = subspace
+            
         # Calculate a position for the new subspace (simple horizontal placement)
         num_existing_subspaces = len(self.exterior_space.get_subspaces())
         new_x = num_existing_subspaces * (new_subspace.size_x + 10) # Place horizontally with a 10px gap
@@ -1538,7 +1546,7 @@ class ExteriorScreen(QWidget):
             if dimension == "x":
                 subspace.resize(new_value, subspace.size_y)
             elif dimension == "y":
-                subspace.resize(subspace.size_x, new_value)
+                subspace.resize(new_value, new_value)
                 
             # If the subspace is in the scenes dictionary, update its visual representation
             subspace_coords = (subspace.x, subspace.y)
@@ -1595,3 +1603,11 @@ class ExteriorScreen(QWidget):
             widgets['size_x_input'].setText(str(subspace.size_x))
             widgets['size_y_input'].setText(str(subspace.size_y))
 
+    
+
+    def _open_subspace_wizard(self):
+        """Open the Subspace Wizard window to help with designing subspaces"""
+        from screens.exterior_subspaceWizard import SubspaceWizard
+        # Create and show the Subspace Wizard window
+        self.subspace_wizard = SubspaceWizard(self, available_modules=self.available_modules)
+        self.subspace_wizard.show()

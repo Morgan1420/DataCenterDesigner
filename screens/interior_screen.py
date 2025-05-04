@@ -1,15 +1,18 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QListWidget, QMessageBox, QGraphicsView, QGraphicsScene, 
     QGraphicsRectItem, QGroupBox, QScrollArea, QSplitter, QListWidgetItem, QGraphicsItem, QGraphicsEllipseItem,
-    QGraphicsPolygonItem, QMenu, QTreeView, QGraphicsLineItem, QLineEdit, QTabWidget, QFrame, QGraphicsTextItem
+    QGraphicsPolygonItem, QMenu, QTreeView, QGraphicsLineItem, QLineEdit
 )
-from PySide6.QtCore import Qt, QSize, QRectF, QPointF
+from PySide6.QtCore import Qt, QSize, QRectF, QPointF, Signal
 from PySide6.QtGui import QColor, QPen, QBrush, QCursor, QPainter, QPolygonF, QStandardItemModel
-from screens.interior_screen_modules import InteriorSpace, Subspace, BoundaryIOBox
+from screens.interior_screen_modules import InteriorSpace, Subspace
 from modules import Module, distancia_entre_modulos
 
 # Constants
-PADDING = 10  # Padding between modules
+PADDING = 10  # Padding between modules (should match padding in interior_screen_modules.py)
+
+# Color mapping for different types of inputs/outputs
+# Ensure consistent colors across the application
 class DataTypeColors:
     @staticmethod
     def get_color_for_data_type(data_type: str) -> QColor:
@@ -23,22 +26,17 @@ class DataTypeColors:
             
             # Water-related
             "Water": QColor(0, 191, 255),  # Deep Sky Blue
-            "Chilled_Water": QColor(135, 206, 250),  # Light Sky Blue
-            "Fresh_Water": QColor(70, 130, 180),  # Steel Blue
-            "Distilled_Water": QColor(70, 130, 180),  # Steel Blue
+            "Cooling_Water": QColor(135, 206, 250),  # Light Sky Blue
+            "Treated_Water": QColor(70, 130, 180),  # Steel Blue
             
             # Space-related
             "Space_X": QColor(169, 169, 169),  # Dark Gray
             "Space_Y": QColor(169, 169, 169),  # Dark Gray
             
             # Network-related
-            "Internal_Network": QColor(50, 205, 50),  # Lime Green
-            "External_Network": QColor(0, 100, 0),  # Dark Green
+            "Network": QColor(50, 205, 50),  # Lime Green
+            "Data": QColor(34, 139, 34),  # Forest Green
             
-            # Data-related
-            "Data_Storage": QColor(255, 20, 147),  # Deep Pink
-            "Processing": QColor(255, 182, 193), # Light Pink
-
             # Price/economic
             "Price": QColor(138, 43, 226),  # Blue Violet
             "Cost": QColor(138, 43, 226),  # Blue Violet
@@ -59,6 +57,8 @@ class DataTypeColors:
         
         # Default color for unknown types - purple
         return QColor(128, 0, 128)  # Purple
+
+
 class ModuleConnection:
     """Represents a connection between two module IO indicators."""
     def __init__(self, source_module, source_type, target_module, target_type):
@@ -75,6 +75,8 @@ class ModuleConnection:
     def is_boundary_connection(self):
         """Check if this is a connection to a boundary box."""
         return self.source_module is None or self.target_module is None
+
+
 class ModuleConnectionLine(QGraphicsLineItem):
     """Visual representation of a connection between modules."""
     def __init__(self, connection, start_point, end_point):
@@ -109,6 +111,8 @@ class ModuleConnectionLine(QGraphicsLineItem):
         # Update the line
         self.setLine(self.start_point.x(), self.start_point.y(), 
                      self.end_point.x(), self.end_point.y())
+
+
 class ModuleIOIndicator:
     """Base class for module input/output indicators."""
     @staticmethod
@@ -182,6 +186,7 @@ class ModuleIOIndicator:
         
         return triangle_item
 
+
 class DraggableModuleItem(QGraphicsRectItem):
     def __init__(self, x, y, width, height, module, subspace, parent_screen):
         super().__init__(x, y, width, height)
@@ -197,6 +202,10 @@ class DraggableModuleItem(QGraphicsRectItem):
         self.setZValue(1)  # Ensure modules appear above the subspace background
         self.start_pos = QPointF(x, y)
         self.is_moving = False  # Flag to track if we're in move mode
+        self.width = width
+        self.hasBeenMoved = False  # Flag to track if the module has been moved
+        self.moduleInitialY= self.module.y
+        self.moduleInitialX= self.module.x
         
         # Connection drawing variables
         self.temp_connection_line = None  # Temporary line shown while dragging
@@ -613,8 +622,15 @@ class DraggableModuleItem(QGraphicsRectItem):
             return new_pos
         elif change == QGraphicsItem.ItemPositionHasChanged and self.scene():
             # After the module has been moved, update the module's position in the data model
-            self.module.x = self.x()
-            self.module.y = self.y()
+            self.module.x = self.x() + self.moduleInitialX
+            self.module.y = self.y() + self.moduleInitialY
+               
+            
+                
+            
+            # Emitir señal de movimiento
+            if hasattr(self.parent_screen, 'module_moved'):
+                self.parent_screen.module_moved.emit(self.module, self.subspace)
             
             # Clear all connections and reset IOs when a module is moved
             self.parent_screen._clear_all_connections()
@@ -633,6 +649,10 @@ class DraggableModuleItem(QGraphicsRectItem):
             # Recalculate unconnected IO for the subspace
             self.subspace.calculate_unconnected_io(self.parent_screen.module_connections)
             self.parent_screen._redraw_subspace_io_indicators(self.subspace)
+            
+            # --- NUEVO: Redibujar el InteriorSpace en tiempo real ---
+            if hasattr(self.parent_screen, '_draw_space'):
+                self.parent_screen._draw_space()
             
         return super().itemChange(change, value)
 
@@ -675,8 +695,13 @@ class DraggableModuleItem(QGraphicsRectItem):
             self.setCursor(QCursor(Qt.OpenHandCursor))
             # End the move operation
             self.is_moving = False
+            # Sincronizar la posición del modelo de datos con la posición visual
+            self.module.set_position(self.x(), self.y())
+            # Redibujar el interior para reflejar la nueva posición
+            if hasattr(self.parent_screen, '_draw_space'):
+                self.parent_screen._draw_space()
         super().mouseReleaseEvent(event)
-            
+
     def show_context_menu(self, event):
         menu = QMenu()
         
@@ -747,13 +772,16 @@ class ZoomableGraphicsView(QGraphicsView):
             self.scale(self.max_scale, self.max_scale)
             self.scale_factor = self.max_scale
         
+        # Don't call parent implementation to avoid default behavior
+        
     def resetZoom(self):
         """Reset zoom to original scale."""
         self.resetTransform()
         self.scale_factor = 1.0
 
+
 class InteriorScreen(QWidget):
-    """Main interior screen widget that displays the interior space and modules."""
+    module_moved = Signal(object, object)  # (module, subspace)
     def __init__(self, interior_space: InteriorSpace, available_modules: list[Module], environment=None, center=None):
         super().__init__()
         if not isinstance(interior_space, InteriorSpace):
@@ -810,11 +838,6 @@ class InteriorScreen(QWidget):
         self.bottom_layout.addWidget(self.visualize_3d_button)
         self.visualize_3d_button.clicked.connect(self._visualize_modules_3d)
 
-        # Botón para el Asistente de Subespacios
-        self.subspace_wizard_button = QPushButton("Subspace Wizard")
-        self.bottom_layout.addWidget(self.subspace_wizard_button)
-        self.subspace_wizard_button.clicked.connect(self._open_subspace_wizard)
-
         # Scroll area for subspace editors
         self.scroll_area = QScrollArea()
         self.scroll_area_widget = QWidget()
@@ -824,10 +847,13 @@ class InteriorScreen(QWidget):
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setMinimumHeight(500)  # Set minimum height for the scroll area
         self.bottom_layout.addWidget(self.scroll_area)
+        
+        # En el constructor de InteriorScreen o donde se crea el subspace editor:
+        self.module_moved.connect(self._on_module_moved)
 
     def set_center(self, center):
         self.center = center
-        #print(f"[ExteriorScreen] Center actualizado: pos=({self.center.x}, {self.center.y})")
+        #print(f"[InteriorScreen] Center actualizado: pos=({self.center.x}, {self.center.y})")
         self._draw_space()  # Forzar redibujado siempre
 
     def set_environment(self, environment):
@@ -845,36 +871,17 @@ class InteriorScreen(QWidget):
         self.scene.clear()
 
         # Dibujar el rectángulo del Environment si existe
-        env_width = None
-        env_height = None
-        if self.environment:
-            try:
-                env_width = float(self.environment.parameters.get('Space_X', 1000))
-                env_height = float(self.environment.parameters.get('Space_Y', 500))
-                env_rect = QGraphicsRectItem(0, 0, env_width, env_height)
-                env_rect.setBrush(QColor(180, 220, 180))
-                self.scene.addItem(env_rect)
-            except Exception:
-                env_width = self.interior_space.get_size_x()
-                env_height = self.interior_space.get_size_y()
-        else:
-            # Draw the interior space (fallback)
-            env_width = self.interior_space.get_size_x()
-            env_height = self.interior_space.get_size_y()
-            space_rect = QGraphicsRectItem(0, 0, env_width, env_height)
-            space_rect.setBrush(QColor(200, 200, 200))
-            self.scene.addItem(space_rect)
+        center_width = None
+        center_height = None
+
 
         # Dibujar el Center si existe
         if self.center:
             try:
                 center_width = float(self.center.inputs.get('Space_X', 100))
                 center_height = float(self.center.inputs.get('Space_Y', 50))
-                # Usar la posición relativa respecto al Environment
-                if self.environment:
-                    center_x, center_y = self.center.get_position(self.environment)
-                else:
-                    center_x, center_y = getattr(self.center, 'x', 0), getattr(self.center, 'y', 0)
+                center_x = 0
+                center_y = 0
                 center_rect = QGraphicsRectItem(center_x, center_y, center_width, center_height)
                 center_rect.setBrush(QColor(255, 255, 150))
                 center_rect.setPen(QColor(180, 180, 80))
@@ -898,10 +905,20 @@ class InteriorScreen(QWidget):
             for module in subspace.get_modules():
                 module_x = subspace.x + module.x  # Absolute position = subspace position + module relative position
                 module_y = subspace.y + module.y
+
+                print(f"Drawing module {module.id} at ({module_x}, {module_y})")
+                print(f"Module y: {module.y}")
+                print(f"Module x: {module.x}")
+                print(f"Subspace y: {subspace.y}")
+                print(f"Subspace x: {subspace.x}")
+                
+                # Si el módulo está en la parte inferior del subspace, darle el ancho del subspace
+                is_bottom = abs((module.y + module.size_y) - subspace.size_y) < 2  # tolerancia de 2 px
+                draw_width = subspace.size_x if is_bottom else module.size_x
                 
                 # Use the actual module size for drawing
                 # No need to check for zero size - if size is properly set from CSVs
-                module_rect = QGraphicsRectItem(module_x, module_y, module.size_x, module.size_y)
+                module_rect = QGraphicsRectItem(module_x, module_y, draw_width, module.size_y)
                 # Set RED color for modules (255, 0, 0)
                 module_rect.setBrush(QColor(255, 0, 0))  
                 # Add a black border to make it stand out
@@ -930,7 +947,7 @@ class InteriorScreen(QWidget):
             self._add_subspace_editor(new_subspace) # Add editor using the subspace with correct coords
         else:
             QMessageBox.warning(self, "Error", "Cannot add new subspace, not enough space in the interior area.")
- 
+
     def _add_subspace_editor(self, subspace: Subspace):
         # Create a group box for the subspace editor
         subspace_coords = (subspace.x, subspace.y)
@@ -980,6 +997,16 @@ class InteriorScreen(QWidget):
         size_y_layout.addWidget(size_y_label)
         size_y_layout.addWidget(size_y_input)
         properties_layout.addLayout(size_y_layout)
+        
+        # Guardar referencias a los widgets de propiedades para actualización dinámica
+        if not hasattr(self, 'subspace_properties_widgets'):
+            self.subspace_properties_widgets = {}
+        self.subspace_properties_widgets[subspace_coords] = {
+            'name_input': name_input,
+            'size_x_input': size_x_input,
+            'size_y_input': size_y_input,
+            'group_box': properties_groupbox
+        }
         
         # Delete subspace button
         delete_subspace_btn = QPushButton("Delete Subspace")
@@ -1046,6 +1073,23 @@ class InteriorScreen(QWidget):
 
         # Add the group box to the scroll area layout
         self.scroll_area_layout.addWidget(subspace_editor_group)
+        
+        # --- Señales para edición bidireccional ---
+        def on_name_edit(text):
+            if not getattr(name_input, '_updating', False):
+                self._update_subspace_name(subspace, text, properties_groupbox)
+        def on_size_x_edit(text):
+            if not getattr(size_x_input, '_updating', False):
+                self._update_subspace_size(subspace, "x", text)
+        def on_size_y_edit(text):
+            if not getattr(size_y_input, '_updating', False):
+                self._update_subspace_size(subspace, "y", text)
+        name_input.textChanged.disconnect()
+        size_x_input.textChanged.disconnect()
+        size_y_input.textChanged.disconnect()
+        name_input.textChanged.connect(on_name_edit)
+        size_x_input.textChanged.connect(on_size_x_edit)
+        size_y_input.textChanged.connect(on_size_y_edit)
 
     def _populate_available_modules(self, available_modules_list, subspace: Subspace):
         available_modules_list.clear()
@@ -1115,7 +1159,7 @@ class InteriorScreen(QWidget):
         if subspace_modules_list and subspace_scene:
             print(f"Found stored list and scene for subspace {subspace_coords}. Updating editor.")
             self._update_subspace_editor(subspace, subspace_modules_list, subspace_scene)
-            # Redraw the main interior space as the subspace size might have changed
+            self._refresh_subspace_properties(subspace)
             self._draw_space()
         else:
             print(f"Error: Could not find stored components (list or scene) for subspace {subspace_coords}")
@@ -1188,6 +1232,8 @@ class InteriorScreen(QWidget):
             print(f"  Graphics scene updated for {subspace_coords}")
         else:
             print(f"  Subspace scene not provided for {subspace_coords}.")
+        # Al final de la función, refrescar los campos de propiedades
+        self._refresh_subspace_properties(subspace)
 
     def _remove_module_from_subspace(self, module: Module, subspace: Subspace):
         subspace_coords = (subspace.x, subspace.y)
@@ -1217,6 +1263,7 @@ class InteriorScreen(QWidget):
         if subspace_modules_list and subspace_scene:
             print(f"Found stored list and scene for subspace {subspace_coords}. Updating editor after removal.")
             self._update_subspace_editor(subspace, subspace_modules_list, subspace_scene)
+            self._refresh_subspace_properties(subspace)
             # Redraw the main interior space to show the updated subspace with module removed
             self._draw_space()
         else:
@@ -1224,15 +1271,18 @@ class InteriorScreen(QWidget):
 
 
     def _visualize_modules_3d(self):
-        # Collect all modules from all subspaces
+        """Llama a la función de visualización 3D con todos los módulos de todos los subespacios, el Center y el Environment como suelo si existe."""
+        from visualization_3d import draw_modules_3d
         all_modules = []
         for subspace in self.interior_space.get_subspaces():
             all_modules.extend(subspace.get_modules())
-        
-        # Create a 3D visualization of the modules
-        from visualization_3d import visualize_3d
-        visualize_3d(all_modules, self.interior_space, self.environment, self.center)
-        
+
+        if all_modules or self.center:
+            center_width = float(self.center.inputs.get('Space_X', 100))
+            center_height = float(self.center.inputs.get('Space_Y', 50))
+            draw_modules_3d(all_modules, title="Visualización 3D de Módulos en InteriorSpace", environment=self.environment, center=self.center, center_width=center_width, center_height=center_height)
+        else:
+            QMessageBox.information(self, "Sin módulos", "No hay módulos para visualizar en 3D.")
 
         
     def _clear_all_connections(self):
@@ -1245,6 +1295,7 @@ class InteriorScreen(QWidget):
         # Clear the lists
         self.module_connections = []
         self.connection_lines = []
+
 
     def distancia_entre_center_y_modulo(self, modulo):
         """
@@ -1525,6 +1576,19 @@ class InteriorScreen(QWidget):
             
             # Update the main space view
             self._draw_space()
+            
+    def _on_module_moved(self, module, subspace):
+        # Aquí puedes actualizar solo el módulo movido o redibujar todo
+        self._draw_space()
+        
+    def _refresh_subspace_properties(self, subspace):
+        """Actualiza los campos de propiedades del subspace en el panel de propiedades."""
+        subspace_coords = (subspace.x, subspace.y)
+        if hasattr(self, 'subspace_properties_widgets') and subspace_coords in self.subspace_properties_widgets:
+            widgets = self.subspace_properties_widgets[subspace_coords]
+            widgets['name_input'].setText(getattr(subspace, 'name', f"Subspace ({subspace.x}, {subspace.y})"))
+            widgets['size_x_input'].setText(str(int(subspace.size_x)))
+            widgets['size_y_input'].setText(str(int(subspace.size_y)))
 
     def _open_subspace_wizard(self):
         """Open the Subspace Wizard window to help with designing subspaces"""
@@ -1532,3 +1596,4 @@ class InteriorScreen(QWidget):
         # Create and show the Subspace Wizard window
         self.subspace_wizard = SubspaceWizard(self)
         self.subspace_wizard.show()
+

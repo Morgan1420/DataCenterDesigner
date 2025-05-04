@@ -1306,7 +1306,7 @@ class ExteriorScreen(QWidget):
         """
         Devuelve la distancia entre el Center y un módulo (en el exterior), usando el Environment si está disponible.
         """
-        if self.center is None or modulo s None:
+        if self.center is None or modulo is None:
             return None
         return distancia_entre_modulos(self.center, modulo, self.environment)
 

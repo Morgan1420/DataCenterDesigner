@@ -968,8 +968,8 @@ class ExteriorScreen(QWidget):
             QMessageBox.warning(self, "Error", "Cannot add new subspace, not enough space in the exterior area.")
 
     def _add_subspace_editor(self, subspace: Subspace):
-        # Create a group box for the subspace editor
-        subspace_coords = (subspace.x, subspace.y)
+        # Cambiar clave a id(subspace) para evitar problemas si cambian x/y
+        subspace_key = id(subspace)
         subspace_editor_group = QGroupBox(f"Subspace Editor ({subspace.x}, {subspace.y})")
         subspace_editor_layout = QHBoxLayout()
         subspace_editor_group.setLayout(subspace_editor_layout)
@@ -1002,7 +1002,7 @@ class ExteriorScreen(QWidget):
         # Size X input
         size_x_layout = QHBoxLayout()
         size_x_label = QLabel("Size X:")
-        size_x_input = QLineEdit(str(subspace.size_x))
+        size_x_input = QLineEdit(str(int(subspace.size_x)))
         size_x_input.textChanged.connect(lambda text: self._update_subspace_size(subspace, "x", text))
         size_x_layout.addWidget(size_x_label)
         size_x_layout.addWidget(size_x_input)
@@ -1011,7 +1011,7 @@ class ExteriorScreen(QWidget):
         # Size Y input
         size_y_layout = QHBoxLayout()
         size_y_label = QLabel("Size Y:")
-        size_y_input = QLineEdit(str(subspace.size_y))
+        size_y_input = QLineEdit(str(int(subspace.size_y)))
         size_y_input.textChanged.connect(lambda text: self._update_subspace_size(subspace, "y", text))
         size_y_layout.addWidget(size_y_label)
         size_y_layout.addWidget(size_y_input)
@@ -1020,7 +1020,7 @@ class ExteriorScreen(QWidget):
         # Guardar referencias a los widgets de propiedades para actualización dinámica
         if not hasattr(self, 'subspace_properties_widgets'):
             self.subspace_properties_widgets = {}
-        self.subspace_properties_widgets[subspace_coords] = {
+        self.subspace_properties_widgets[subspace_key] = {
             'name_input': name_input,
             'size_x_input': size_x_input,
             'size_y_input': size_y_input,
@@ -1041,7 +1041,7 @@ class ExteriorScreen(QWidget):
         
         subspace_modules_list = QListWidget()
         # Store reference to this list widget
-        self.subspace_module_lists[subspace_coords] = subspace_modules_list
+        self.subspace_module_lists[subspace_key] = subspace_modules_list
         subspace_modules_list.setMinimumHeight(100)
         modules_layout.addWidget(subspace_modules_list)
         
@@ -1051,7 +1051,7 @@ class ExteriorScreen(QWidget):
         # Column 3: Subspace graphical representation
         subspace_scene = QGraphicsScene()
         # Store reference to this scene
-        self.subspace_scenes[subspace_coords] = subspace_scene
+        self.subspace_scenes[subspace_key] = subspace_scene
         
         # Use the new ZoomableGraphicsView instead of the standard view
         subspace_view = ZoomableGraphicsView(subspace_scene)
@@ -1094,21 +1094,31 @@ class ExteriorScreen(QWidget):
         self.scroll_area_layout.addWidget(subspace_editor_group)
         
         # --- Señales para edición bidireccional ---
-        def on_name_edit(text):
-            if not getattr(name_input, '_updating', False):
-                self._update_subspace_name(subspace, text, properties_groupbox)
-        def on_size_x_edit(text):
-            if not getattr(size_x_input, '_updating', False):
-                self._update_subspace_size(subspace, "x", text)
-        def on_size_y_edit(text):
-            if not getattr(size_y_input, '_updating', False):
-                self._update_subspace_size(subspace, "y", text)
-        name_input.textChanged.disconnect()
-        size_x_input.textChanged.disconnect()
-        size_y_input.textChanged.disconnect()
-        name_input.textChanged.connect(on_name_edit)
-        size_x_input.textChanged.connect(on_size_x_edit)
-        size_y_input.textChanged.connect(on_size_y_edit)
+        # Usar funciones lambda directamente con la comprobación del flag
+        # para asegurar que se capturen las variables correctas (subspace, inputs, groupbox)
+        # y simplificar un poco.
+
+        # Desconectar conexiones previas si existieran (aunque en _add_subspace_editor no debería haber)
+        try:
+            name_input.textChanged.disconnect()
+            size_x_input.textChanged.disconnect()
+            size_y_input.textChanged.disconnect()
+        except RuntimeError:
+             pass # Ignorar si no estaban conectadas
+
+        # Conectar usando lambdas que verifican el flag _updating
+        name_input.textChanged.connect(
+            lambda text, s=subspace, ni=name_input, gb=properties_groupbox:
+                self._update_subspace_name(s, text, gb) if not getattr(ni, '_updating', False) else None
+        )
+        size_x_input.textChanged.connect(
+            lambda text, s=subspace, si=size_x_input:
+                self._update_subspace_size(s, "x", text) if not getattr(si, '_updating', False) else None
+        )
+        size_y_input.textChanged.connect(
+            lambda text, s=subspace, si=size_y_input:
+                self._update_subspace_size(s, "y", text) if not getattr(si, '_updating', False) else None
+        )
 
     def _populate_available_modules(self, available_modules_list, subspace: Subspace):
         available_modules_list.clear()
@@ -1135,8 +1145,8 @@ class ExteriorScreen(QWidget):
             available_modules_list.setItemWidget(item, module_item_widget)
 
     def _add_module_to_subspace(self, module: Module, subspace: Subspace):
-        subspace_coords = (subspace.x, subspace.y)
-        print(f"Attempting to add module {module.id} to subspace {subspace_coords}")
+        subspace_key = id(subspace)
+        print(f"Attempting to add module {module.id} to subspace {subspace_key}")
 
         # Create a copy of the module with a unique identifier
         # Count existing modules with the same base name to create a unique ID
@@ -1172,27 +1182,27 @@ class ExteriorScreen(QWidget):
                 subspace.add_output(o, m.outputs[o])
 
         # Retrieve the stored list widget and scene directly
-        subspace_modules_list = self.subspace_module_lists.get(subspace_coords)
-        subspace_scene = self.subspace_scenes.get(subspace_coords)
+        subspace_modules_list = self.subspace_module_lists.get(subspace_key)
+        subspace_scene = self.subspace_scenes.get(subspace_key)
 
         if subspace_modules_list and subspace_scene:
-            print(f"Found stored list and scene for subspace {subspace_coords}. Updating editor.")
+            print(f"Found stored list and scene for subspace {subspace_key}. Updating editor.")
             self._update_subspace_editor(subspace, subspace_modules_list, subspace_scene)
             self._refresh_subspace_properties(subspace)
             self._draw_space()
         else:
-            print(f"Error: Could not find stored components (list or scene) for subspace {subspace_coords}")
+            print(f"Error: Could not find stored components (list or scene) for subspace {subspace_key}")
             if not subspace_modules_list:
                 print("  Reason: Subspace module list not found in dictionary.")
             if not subspace_scene:
                 print("  Reason: Subspace scene not found in dictionary.")
 
     def _update_subspace_editor(self, subspace: Subspace, subspace_modules_list=None, subspace_scene=None):
-        subspace_coords = (subspace.x, subspace.y)
-        print(f"Updating editor for subspace {subspace_coords}")
+        subspace_key = id(subspace)
+        print(f"Updating editor for subspace {subspace_key}")
         # Update subspace modules list (Column 2)
         if subspace_modules_list:
-            print(f"  Updating list widget for {subspace_coords}")
+            print(f"  Updating list widget for {subspace_key}")
             subspace_modules_list.clear()
             modules_in_subspace = subspace.get_modules()
             print(f"  Modules found in subspace object: {[m.id for m in modules_in_subspace]}")
@@ -1220,11 +1230,11 @@ class ExteriorScreen(QWidget):
                 subspace_modules_list.setItemWidget(item, module_item_widget)
             print(f"  List widget item count after update: {subspace_modules_list.count()}")
         else:
-            print(f"  Subspace modules list widget not provided for {subspace_coords}.")
+            print(f"  Subspace modules list widget not provided for {subspace_key}.")
 
         # Update subspace graphical representation (Column 3)
         if subspace_scene:
-            print(f"  Updating graphics scene for {subspace_coords}")
+            print(f"  Updating graphics scene for {subspace_key}")
             subspace_scene.clear()
             # Draw the subspace background using its current potentially resized dimensions
             subspace_rect = QGraphicsRectItem(0, 0, subspace.size_x, subspace.size_y)
@@ -1248,15 +1258,15 @@ class ExteriorScreen(QWidget):
             if view:
                  view[0].setSceneRect(subspace_scene.itemsBoundingRect()) # Adjust view to fit content
             subspace_scene.update()
-            print(f"  Graphics scene updated for {subspace_coords}")
+            print(f"  Graphics scene updated for {subspace_key}")
         else:
-            print(f"  Subspace scene not provided for {subspace_coords}.")
+            print(f"  Subspace scene not provided for {subspace_key}.")
         # Al final de la función, refrescar los campos de propiedades
         self._refresh_subspace_properties(subspace)
 
     def _remove_module_from_subspace(self, module: Module, subspace: Subspace):
-        subspace_coords = (subspace.x, subspace.y)
-        print(f"Attempting to remove module {module.id} from subspace {subspace_coords}")
+        subspace_key = id(subspace)
+        print(f"Attempting to remove module {module.id} from subspace {subspace_key}")
 
         # Remove module from the subspace data structure
         subspace.remove_module(module)
@@ -1276,17 +1286,17 @@ class ExteriorScreen(QWidget):
                 subspace.add_output(o, m.outputs[o])
         
         # Retrieve the stored list widget and scene directly
-        subspace_modules_list = self.subspace_module_lists.get(subspace_coords)
-        subspace_scene = self.subspace_scenes.get(subspace_coords)
+        subspace_modules_list = self.subspace_module_lists.get(subspace_key)
+        subspace_scene = self.subspace_scenes.get(subspace_key)
 
         if subspace_modules_list and subspace_scene:
-            print(f"Found stored list and scene for subspace {subspace_coords}. Updating editor after removal.")
+            print(f"Found stored list and scene for subspace {subspace_key}. Updating editor after removal.")
             self._update_subspace_editor(subspace, subspace_modules_list, subspace_scene)
             self._refresh_subspace_properties(subspace)
             # Redraw the main exterior space to show the updated subspace with module removed
             self._draw_space()
         else:
-            print(f"Error: Could not find stored components for subspace {subspace_coords} during removal.")
+            print(f"Error: Could not find stored components for subspace {subspace_key} during removal.")
 
 
     def _visualize_modules_3d(self):
@@ -1541,20 +1551,31 @@ class ExteriorScreen(QWidget):
                 subspace.resize(subspace.size_x, new_value)
                 
             # If the subspace is in the scenes dictionary, update its visual representation
-            subspace_coords = (subspace.x, subspace.y)
-            if subspace_coords in self.subspace_scenes:
-                subspace_scene = self.subspace_scenes[subspace_coords]
-                self._update_subspace_editor(subspace, self.subspace_module_lists[subspace_coords], subspace_scene)
-            
+            subspace_key = id(subspace)
+            if subspace_key in self.subspace_scenes:
+                subspace_scene = self.subspace_scenes[subspace_key]
+                # --- CORRECCIÓN: Recuperar también la lista de módulos ---
+                subspace_modules_list = self.subspace_module_lists.get(subspace_key) # Recuperar la lista
+                if subspace_modules_list: # Asegurarse de que la lista existe
+                    # --- CORRECCIÓN: Pasar la lista y la escena a la función de actualización ---
+                    self._update_subspace_editor(subspace, subspace_modules_list, subspace_scene)
+                else:
+                     print(f"Error: No se encontró la lista de módulos para subspace {subspace_key} al actualizar tamaño.")
+
+
             # Update the main space view as well
             self._draw_space()
-                
+
+            # Opcional: Refrescar explícitamente las propiedades por si acaso
+            # self._refresh_subspace_properties(subspace) # Ya se llama dentro de _update_subspace_editor
+
         except ValueError:
-            # If the input is not a valid integer, do nothing
+            # If the input is not a valid integer, do nothing for now
+            # Podrías añadir un feedback visual aquí si lo deseas
+            print(f"Valor inválido '{value}' para tamaño {dimension}. Se ignora.")
             pass
 
     def _delete_subspace(self, subspace, subspace_editor_group):
-        """Delete a subspace from the exterior space."""
         # Confirm deletion with user
         confirm = QMessageBox.question(
             self, 
@@ -1573,11 +1594,11 @@ class ExteriorScreen(QWidget):
             subspace_editor_group.deleteLater()
             
             # Remove the subspace from our tracking dictionaries
-            subspace_coords = (subspace.x, subspace.y)
-            if subspace_coords in self.subspace_scenes:
-                del self.subspace_scenes[subspace_coords]
-            if subspace_coords in self.subspace_module_lists:
-                del self.subspace_module_lists[subspace_coords]
+            subspace_key = id(subspace)
+            if subspace_key in self.subspace_scenes:
+                del self.subspace_scenes[subspace_key]
+            if subspace_key in self.subspace_module_lists:
+                del self.subspace_module_lists[subspace_key]
             
             # Update the main space view
             self._draw_space()
@@ -1588,10 +1609,27 @@ class ExteriorScreen(QWidget):
         
     def _refresh_subspace_properties(self, subspace):
         """Actualiza los campos de propiedades del subspace en el panel de propiedades."""
-        subspace_coords = (subspace.x, subspace.y)
-        if hasattr(self, 'subspace_properties_widgets') and subspace_coords in self.subspace_properties_widgets:
-            widgets = self.subspace_properties_widgets[subspace_coords]
-            widgets['name_input'].setText(getattr(subspace, 'name', f"Subspace ({subspace.x}, {subspace.y})"))
-            widgets['size_x_input'].setText(str(subspace.size_x))
-            widgets['size_y_input'].setText(str(subspace.size_y))
+        subspace_key = id(subspace)
+        if hasattr(self, 'subspace_properties_widgets') and subspace_key in self.subspace_properties_widgets:
+            widgets = self.subspace_properties_widgets[subspace_key]
+            
+            # Setear flag _updating antes de cambiar el texto programáticamente
+            widgets['name_input']._updating = True
+            widgets['size_x_input']._updating = True
+            widgets['size_y_input']._updating = True
+            
+            try:
+                widgets['name_input'].setText(getattr(subspace, 'name', f"Subspace ({subspace.x}, {subspace.y})"))
+                # Ensure sizes are displayed as integers
+                widgets['size_x_input'].setText(str(int(subspace.size_x))) 
+                widgets['size_y_input'].setText(str(int(subspace.size_y)))
+            except (ValueError, TypeError):
+                 # Fallback in case size is not numeric (should not happen ideally)
+                 widgets['size_x_input'].setText(str(subspace.size_x))
+                 widgets['size_y_input'].setText(str(subspace.size_y))
+            finally:
+                # Asegurarse de quitar el flag después de la actualización
+                widgets['name_input']._updating = False
+                widgets['size_x_input']._updating = False
+                widgets['size_y_input']._updating = False
 

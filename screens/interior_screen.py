@@ -1573,6 +1573,6 @@ class InteriorScreen(QWidget):
         if hasattr(self, 'subspace_properties_widgets') and subspace_coords in self.subspace_properties_widgets:
             widgets = self.subspace_properties_widgets[subspace_coords]
             widgets['name_input'].setText(getattr(subspace, 'name', f"Subspace ({subspace.x}, {subspace.y})"))
-            widgets['size_x_input'].setText(str(subspace.size_x))
-            widgets['size_y_input'].setText(str(subspace.size_y))
+            widgets['size_x_input'].setText(str(int(subspace.size_x)))
+            widgets['size_y_input'].setText(str(int(subspace.size_y)))
 

@@ -810,6 +810,11 @@ class InteriorScreen(QWidget):
         self.bottom_layout.addWidget(self.visualize_3d_button)
         self.visualize_3d_button.clicked.connect(self._visualize_modules_3d)
 
+        # Botón para el Asistente de Subespacios
+        self.subspace_wizard_button = QPushButton("Subspace Wizard")
+        self.bottom_layout.addWidget(self.subspace_wizard_button)
+        self.subspace_wizard_button.clicked.connect(self._open_subspace_wizard)
+
         # Scroll area for subspace editors
         self.scroll_area = QScrollArea()
         self.scroll_area_widget = QWidget()
@@ -1219,17 +1224,31 @@ class InteriorScreen(QWidget):
 
 
     def _visualize_modules_3d(self):
-        """Llama a la función de visualización 3D con todos los módulos de todos los subespacios, el Center y el Environment como suelo si existe."""
-        from visualization_3d import draw_modules_3d
+        # Collect all modules from all subspaces
         all_modules = []
         for subspace in self.interior_space.get_subspaces():
             all_modules.extend(subspace.get_modules())
-        if all_modules or self.center:
-            center_width = float(self.center.inputs.get('Space_X', 100))
-            center_height = float(self.center.inputs.get('Space_Y', 50))
-            draw_modules_3d(all_modules, title="Visualización 3D de Módulos en ExteriorSpace", environment=self.environment, center=self.center, center_width=center_width, center_height=center_height)
-        else:
-            QMessageBox.information(self, "Sin módulos", "No hay módulos para visualizar en 3D.")
+        
+        # Create a 3D visualization of the modules
+        from visualization_3d import visualize_3d
+        visualize_3d(all_modules, self.interior_space, self.environment, self.center)
+        
+    def _open_subspace_wizard(self):
+        """Open the Subspace Wizard window"""
+        from screens.subspaceWizzard import SubspaceWizzard
+        self.subspace_wizard = SubspaceWizzard(self)
+        self.subspace_wizard.show()
+        
+    def _clear_all_connections(self):
+        """Clear all module connections and their visual representations."""
+        # Remove all connection lines from the scene
+        for line in self.connection_lines:
+            if line in self.scene.items():
+                self.scene.removeItem(line)
+        
+        # Clear the lists
+        self.module_connections = []
+        self.connection_lines = []
 
     def distancia_entre_center_y_modulo(self, modulo):
         """
@@ -1510,3 +1529,10 @@ class InteriorScreen(QWidget):
             
             # Update the main space view
             self._draw_space()
+
+    def _open_subspace_wizard(self):
+        """Open the Subspace Wizard window to help with designing subspaces"""
+        from screens.subspaceWizzard import SubspaceWizard
+        # Create and show the Subspace Wizard window
+        self.subspace_wizard = SubspaceWizard(self)
+        self.subspace_wizard.show()

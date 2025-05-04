@@ -3,7 +3,7 @@ from PySide6.QtWidgets import (
     QGraphicsRectItem, QGroupBox, QScrollArea, QSplitter, QListWidgetItem, QGraphicsItem, QGraphicsEllipseItem,
     QGraphicsPolygonItem, QMenu, QTreeView, QGraphicsLineItem, QLineEdit
 )
-from PySide6.QtCore import Qt, QSize, QRectF, QPointF
+from PySide6.QtCore import Qt, QSize, QRectF, QPointF, Signal
 from PySide6.QtGui import QColor, QPen, QBrush, QCursor, QPainter, QPolygonF, QStandardItemModel
 from screens.exterior_screen_modules import ExteriorSpace, Subspace
 from modules import Module, distancia_entre_modulos
@@ -202,6 +202,10 @@ class DraggableModuleItem(QGraphicsRectItem):
         self.setZValue(1)  # Ensure modules appear above the subspace background
         self.start_pos = QPointF(x, y)
         self.is_moving = False  # Flag to track if we're in move mode
+        self.width = width
+        self.hasBeenMoved = False  # Flag to track if the module has been moved
+        self.moduleInitialY= self.module.y
+        self.moduleInitialX= self.module.x
         
         # Connection drawing variables
         self.temp_connection_line = None  # Temporary line shown while dragging
@@ -618,8 +622,15 @@ class DraggableModuleItem(QGraphicsRectItem):
             return new_pos
         elif change == QGraphicsItem.ItemPositionHasChanged and self.scene():
             # After the module has been moved, update the module's position in the data model
-            self.module.x = self.x()
-            self.module.y = self.y()
+            self.module.x = self.x() + self.moduleInitialX
+            self.module.y = self.y() + self.moduleInitialY
+               
+            
+                
+            
+            # Emitir señal de movimiento
+            if hasattr(self.parent_screen, 'module_moved'):
+                self.parent_screen.module_moved.emit(self.module, self.subspace)
             
             # Clear all connections and reset IOs when a module is moved
             self.parent_screen._clear_all_connections()
@@ -638,6 +649,10 @@ class DraggableModuleItem(QGraphicsRectItem):
             # Recalculate unconnected IO for the subspace
             self.subspace.calculate_unconnected_io(self.parent_screen.module_connections)
             self.parent_screen._redraw_subspace_io_indicators(self.subspace)
+            
+            # --- NUEVO: Redibujar el ExteriorSpace en tiempo real ---
+            if hasattr(self.parent_screen, '_draw_space'):
+                self.parent_screen._draw_space()
             
         return super().itemChange(change, value)
 
@@ -680,8 +695,13 @@ class DraggableModuleItem(QGraphicsRectItem):
             self.setCursor(QCursor(Qt.OpenHandCursor))
             # End the move operation
             self.is_moving = False
+            # Sincronizar la posición del modelo de datos con la posición visual
+            self.module.set_position(self.x(), self.y())
+            # Redibujar el exterior para reflejar la nueva posición
+            if hasattr(self.parent_screen, '_draw_space'):
+                self.parent_screen._draw_space()
         super().mouseReleaseEvent(event)
-            
+
     def show_context_menu(self, event):
         menu = QMenu()
         
@@ -761,6 +781,7 @@ class ZoomableGraphicsView(QGraphicsView):
 
 
 class ExteriorScreen(QWidget):
+    module_moved = Signal(object, object)  # (module, subspace)
     def __init__(self, exterior_space: ExteriorSpace, available_modules: list[Module], environment=None, center=None):
         super().__init__()
         if not isinstance(exterior_space, ExteriorSpace):
@@ -826,6 +847,9 @@ class ExteriorScreen(QWidget):
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setMinimumHeight(500)  # Set minimum height for the scroll area
         self.bottom_layout.addWidget(self.scroll_area)
+        
+        # En el constructor de ExteriorScreen o donde se crea el subspace editor:
+        self.module_moved.connect(self._on_module_moved)
 
     def set_center(self, center):
         self.center = center
@@ -900,10 +924,20 @@ class ExteriorScreen(QWidget):
             for module in subspace.get_modules():
                 module_x = subspace.x + module.x  # Absolute position = subspace position + module relative position
                 module_y = subspace.y + module.y
+
+                print(f"Drawing module {module.id} at ({module_x}, {module_y})")
+                print(f"Module y: {module.y}")
+                print(f"Module x: {module.x}")
+                print(f"Subspace y: {subspace.y}")
+                print(f"Subspace x: {subspace.x}")
+                
+                # Si el módulo está en la parte inferior del subspace, darle el ancho del subspace
+                is_bottom = abs((module.y + module.size_y) - subspace.size_y) < 2  # tolerancia de 2 px
+                draw_width = subspace.size_x if is_bottom else module.size_x
                 
                 # Use the actual module size for drawing
                 # No need to check for zero size - if size is properly set from CSVs
-                module_rect = QGraphicsRectItem(module_x, module_y, module.size_x, module.size_y)
+                module_rect = QGraphicsRectItem(module_x, module_y, draw_width, module.size_y)
                 # Set RED color for modules (255, 0, 0)
                 module_rect.setBrush(QColor(255, 0, 0))  
                 # Add a black border to make it stand out
@@ -983,6 +1017,16 @@ class ExteriorScreen(QWidget):
         size_y_layout.addWidget(size_y_input)
         properties_layout.addLayout(size_y_layout)
         
+        # Guardar referencias a los widgets de propiedades para actualización dinámica
+        if not hasattr(self, 'subspace_properties_widgets'):
+            self.subspace_properties_widgets = {}
+        self.subspace_properties_widgets[subspace_coords] = {
+            'name_input': name_input,
+            'size_x_input': size_x_input,
+            'size_y_input': size_y_input,
+            'group_box': properties_groupbox
+        }
+        
         # Delete subspace button
         delete_subspace_btn = QPushButton("Delete Subspace")
         delete_subspace_btn.clicked.connect(lambda: self._delete_subspace(subspace, subspace_editor_group))
@@ -1048,6 +1092,23 @@ class ExteriorScreen(QWidget):
 
         # Add the group box to the scroll area layout
         self.scroll_area_layout.addWidget(subspace_editor_group)
+        
+        # --- Señales para edición bidireccional ---
+        def on_name_edit(text):
+            if not getattr(name_input, '_updating', False):
+                self._update_subspace_name(subspace, text, properties_groupbox)
+        def on_size_x_edit(text):
+            if not getattr(size_x_input, '_updating', False):
+                self._update_subspace_size(subspace, "x", text)
+        def on_size_y_edit(text):
+            if not getattr(size_y_input, '_updating', False):
+                self._update_subspace_size(subspace, "y", text)
+        name_input.textChanged.disconnect()
+        size_x_input.textChanged.disconnect()
+        size_y_input.textChanged.disconnect()
+        name_input.textChanged.connect(on_name_edit)
+        size_x_input.textChanged.connect(on_size_x_edit)
+        size_y_input.textChanged.connect(on_size_y_edit)
 
     def _populate_available_modules(self, available_modules_list, subspace: Subspace):
         available_modules_list.clear()
@@ -1117,7 +1178,7 @@ class ExteriorScreen(QWidget):
         if subspace_modules_list and subspace_scene:
             print(f"Found stored list and scene for subspace {subspace_coords}. Updating editor.")
             self._update_subspace_editor(subspace, subspace_modules_list, subspace_scene)
-            # Redraw the main exterior space as the subspace size might have changed
+            self._refresh_subspace_properties(subspace)
             self._draw_space()
         else:
             print(f"Error: Could not find stored components (list or scene) for subspace {subspace_coords}")
@@ -1190,6 +1251,8 @@ class ExteriorScreen(QWidget):
             print(f"  Graphics scene updated for {subspace_coords}")
         else:
             print(f"  Subspace scene not provided for {subspace_coords}.")
+        # Al final de la función, refrescar los campos de propiedades
+        self._refresh_subspace_properties(subspace)
 
     def _remove_module_from_subspace(self, module: Module, subspace: Subspace):
         subspace_coords = (subspace.x, subspace.y)
@@ -1219,6 +1282,7 @@ class ExteriorScreen(QWidget):
         if subspace_modules_list and subspace_scene:
             print(f"Found stored list and scene for subspace {subspace_coords}. Updating editor after removal.")
             self._update_subspace_editor(subspace, subspace_modules_list, subspace_scene)
+            self._refresh_subspace_properties(subspace)
             # Redraw the main exterior space to show the updated subspace with module removed
             self._draw_space()
         else:
@@ -1242,7 +1306,7 @@ class ExteriorScreen(QWidget):
         """
         Devuelve la distancia entre el Center y un módulo (en el exterior), usando el Environment si está disponible.
         """
-        if self.center is None or modulo is None:
+        if self.center is None or modulo s None:
             return None
         return distancia_entre_modulos(self.center, modulo, self.environment)
 
@@ -1517,4 +1581,17 @@ class ExteriorScreen(QWidget):
             
             # Update the main space view
             self._draw_space()
+            
+    def _on_module_moved(self, module, subspace):
+        # Aquí puedes actualizar solo el módulo movido o redibujar todo
+        self._draw_space()
+        
+    def _refresh_subspace_properties(self, subspace):
+        """Actualiza los campos de propiedades del subspace en el panel de propiedades."""
+        subspace_coords = (subspace.x, subspace.y)
+        if hasattr(self, 'subspace_properties_widgets') and subspace_coords in self.subspace_properties_widgets:
+            widgets = self.subspace_properties_widgets[subspace_coords]
+            widgets['name_input'].setText(getattr(subspace, 'name', f"Subspace ({subspace.x}, {subspace.y})"))
+            widgets['size_x_input'].setText(str(subspace.size_x))
+            widgets['size_y_input'].setText(str(subspace.size_y))
 

@@ -4,7 +4,7 @@ from PySide6.QtCore import Qt, QPointF, QEvent
 from PySide6.QtGui import QPen, QColor, QPainter
 from PySide6.QtWidgets import QFrame
 
-PADDING = 5  # Define padding between modules
+PADDING = 10  # Define padding between modules
 
 
 class Subspace:

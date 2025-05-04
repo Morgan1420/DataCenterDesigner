@@ -838,6 +838,11 @@ class ExteriorScreen(QWidget):
         self.bottom_layout.addWidget(self.visualize_3d_button)
         self.visualize_3d_button.clicked.connect(self._visualize_modules_3d)
 
+        # Botón para el Asistente de Subespacios
+        self.subspace_wizard_button = QPushButton("Subspace Wizard")
+        self.bottom_layout.addWidget(self.subspace_wizard_button)
+        self.subspace_wizard_button.clicked.connect(self._open_subspace_wizard)
+
         # Scroll area for subspace editors
         self.scroll_area = QScrollArea()
         self.scroll_area_widget = QWidget()
@@ -944,10 +949,10 @@ class ExteriorScreen(QWidget):
                 module_rect.setPen(QColor(0, 0, 0))
                 self.scene.addItem(module_rect)
 
-    def _add_subspace(self):
+    def _add_subspace(self): 
         # Create a new subspace with default size
         new_subspace = Subspace(50, 50)
-
+            
         # Calculate a position for the new subspace (simple horizontal placement)
         num_existing_subspaces = len(self.exterior_space.get_subspaces())
         new_x = num_existing_subspaces * (new_subspace.size_x + 10) # Place horizontally with a 10px gap
@@ -966,6 +971,33 @@ class ExteriorScreen(QWidget):
             self._add_subspace_editor(new_subspace) # Add editor using the subspace with correct coords
         else:
             QMessageBox.warning(self, "Error", "Cannot add new subspace, not enough space in the exterior area.")
+
+    def add_subspace(self, subspace: Subspace = None): 
+        # Create a new subspace with default size
+        if subspace is None: 
+            new_subspace = Subspace(50, 50)
+        else:
+            new_subspace = subspace
+            
+        # Calculate a position for the new subspace (simple horizontal placement)
+        num_existing_subspaces = len(self.exterior_space.get_subspaces())
+        new_x = num_existing_subspaces * (new_subspace.size_x + 10) # Place horizontally with a 10px gap
+        new_y = 10 # Place near the top
+
+        # Check if it fits within the exterior space boundaries
+        if (new_x + new_subspace.size_x <= self.exterior_space.get_size_x() and
+            new_y + new_subspace.size_y <= self.exterior_space.get_size_y()):
+
+            # Set the calculated position
+            new_subspace.set_position(new_x, new_y)
+
+            # Add to data structure, redraw exterior, and add editor
+            self.exterior_space.add_subspace(new_subspace)
+            self._draw_space() # Redraw exterior to show the new subspace
+            self._add_subspace_editor(new_subspace) # Add editor using the subspace with correct coords
+        else:
+            QMessageBox.warning(self, "Error", "Cannot add new subspace, not enough space in the exterior area.")
+
 
     def _add_subspace_editor(self, subspace: Subspace):
         # Cambiar clave a id(subspace) para evitar problemas si cambian x/y
@@ -1548,7 +1580,7 @@ class ExteriorScreen(QWidget):
             if dimension == "x":
                 subspace.resize(new_value, subspace.size_y)
             elif dimension == "y":
-                subspace.resize(subspace.size_x, new_value)
+                subspace.resize(new_value, new_value)
                 
             # If the subspace is in the scenes dictionary, update its visual representation
             subspace_key = id(subspace)
@@ -1633,3 +1665,11 @@ class ExteriorScreen(QWidget):
                 widgets['size_x_input']._updating = False
                 widgets['size_y_input']._updating = False
 
+    
+
+    def _open_subspace_wizard(self):
+        """Open the Subspace Wizard window to help with designing subspaces"""
+        from screens.exterior_subspaceWizard import SubspaceWizard
+        # Create and show the Subspace Wizard window
+        self.subspace_wizard = SubspaceWizard(self, available_modules=self.available_modules)
+        self.subspace_wizard.show()

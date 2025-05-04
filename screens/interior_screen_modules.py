@@ -1,7 +1,8 @@
 from modules import Module
-from PySide6.QtWidgets import QGraphicsLineItem
-from PySide6.QtCore import Qt, QPointF
-from PySide6.QtGui import QPen, QColor
+from PySide6.QtWidgets import QGraphicsLineItem, QGraphicsView, QGraphicsRectItem, QGraphicsEllipseItem, QGraphicsTextItem, QInputDialog, QMessageBox
+from PySide6.QtCore import Qt, QPointF, QEvent
+from PySide6.QtGui import QPen, QColor, QPainter
+from PySide6.QtWidgets import QFrame
 
 PADDING = 5  # Define padding between modules
 
@@ -353,4 +354,359 @@ class InteriorSpace:
     
     def __repr__(self):
         return f"InteriorSpace(size_x={self.size_x}, size_y={self.size_y}, subspaces={self.subspaces})"
+
+
+class ZoomableGraphicsView(QGraphicsView):
+    """A custom QGraphicsView that supports zooming and panning."""
+    
+    def __init__(self, scene):
+        super().__init__(scene)
+        self.setRenderHint(QPainter.Antialiasing)
+        self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
+        self.setResizeAnchor(QGraphicsView.AnchorUnderMouse)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        self.setBackgroundBrush(QColor(248, 248, 248))
+        self.setFrameShape(QFrame.NoFrame)
+        
+        # Initialize the base scale
+        self._base_scale = 1.0
+        
+    def wheelEvent(self, event):
+        """Override the wheel event for custom zoom functionality."""
+        # Calculate zoom factor
+        zoom_factor = 1.2
+        
+        # Determine direction
+        if event.angleDelta().y() > 0:
+            # Zoom in
+            self.scale(zoom_factor, zoom_factor)
+        else:
+            # Zoom out
+            self.scale(1.0 / zoom_factor, 1.0 / zoom_factor)
+    
+    def mousePressEvent(self, event):
+        """Handle mouse press events."""
+        if event.button() == Qt.MiddleButton:
+            # Enable panning with middle mouse button
+            self.setDragMode(QGraphicsView.ScrollHandDrag)
+            # Create a fake left mouse button event to initiate drag
+            fake_event = QMouseEvent(
+                QEvent.MouseButtonPress,
+                event.pos(),
+                Qt.LeftButton,
+                Qt.LeftButton,
+                Qt.NoModifier
+            )
+            super().mousePressEvent(fake_event)
+        else:
+            super().mousePressEvent(event)
+    
+    def mouseReleaseEvent(self, event):
+        """Handle mouse release events."""
+        if event.button() == Qt.MiddleButton:
+            # Create a fake left mouse button event to finish drag
+            fake_event = QMouseEvent(
+                QEvent.MouseButtonRelease,
+                event.pos(),
+                Qt.LeftButton,
+                Qt.LeftButton,
+                Qt.NoModifier
+            )
+            super().mouseReleaseEvent(fake_event)
+            # Reset drag mode
+            self.setDragMode(QGraphicsView.NoDrag)
+        else:
+            super().mouseReleaseEvent(event)
+    
+    def resetZoom(self):
+        """Reset view to original scale and position."""
+        self.resetTransform()
+        self.centerOn(0, 0)
+
+
+class DraggableModuleItem(QGraphicsRectItem):
+    """A draggable module item for the graphics scene."""
+    
+    def __init__(self, x, y, width, height, module, subspace, parent_screen):
+        super().__init__(x, y, width, height)
+        self.module = module
+        self.subspace = subspace
+        self.parent_screen = parent_screen
+        
+        # Set flags for interaction
+        self.setFlag(QGraphicsItem.ItemIsMovable)
+        self.setFlag(QGraphicsItem.ItemIsSelectable)
+        self.setFlag(QGraphicsItem.ItemSendsGeometryChanges)
+        self.setAcceptHoverEvents(True)
+        
+        # Visual properties
+        self.normal_color = QColor(150, 200, 230)
+        self.selected_color = QColor(220, 230, 150)
+        self.setBrush(self.normal_color)
+        self.setPen(QPen(Qt.black, 1))
+        
+        # Add a label
+        self.label = QGraphicsTextItem(module.id, self)
+        self.label.setPos(5, 5)
+        
+        # Add connection points
+        self._create_connection_points()
+    
+    def _create_connection_points(self):
+        """Create visual connection points for inputs and outputs."""
+        self.input_points = []
+        self.output_points = []
+        
+        # Add inputs on left side
+        y_pos = 20
+        for input_type, capacity in self.module.inputs.items():
+            input_point = ConnectionPoint(
+                self, -5, y_pos, input_type, capacity, False, self.parent_screen
+            )
+            self.input_points.append(input_point)
+            y_pos += 20
+        
+        # Add outputs on right side
+        y_pos = 20
+        for output_type, capacity in self.module.outputs.items():
+            output_point = ConnectionPoint(
+                self, self.module.size_x + 5, y_pos, output_type, capacity, True, self.parent_screen
+            )
+            self.output_points.append(output_point)
+            y_pos += 20
+    
+    def paint(self, painter, option, widget=None):
+        """Override paint to add custom appearance."""
+        # Use different color when selected
+        if self.isSelected():
+            self.setBrush(self.selected_color)
+        else:
+            self.setBrush(self.normal_color)
+        
+        # Draw the basic rectangle
+        super().paint(painter, option, widget)
+        
+        # Add additional visuals
+        painter.setPen(QPen(Qt.black, 1))
+        
+        # Draw header area
+        header_rect = QRectF(self.rect().x(), self.rect().y(), self.rect().width(), 20)
+        painter.fillRect(header_rect, QColor(100, 150, 180))
+        
+        # Draw labels for inputs and outputs
+        painter.setPen(QPen(Qt.darkGray, 1))
+        for i, point in enumerate(self.input_points):
+            painter.drawText(QPointF(5, 25 + i * 20), f"{point.connection_type}")
+        
+        for i, point in enumerate(self.output_points):
+            painter.drawText(
+                QPointF(self.rect().width() - 40, 25 + i * 20),
+                f"{point.connection_type}"
+            )
+    
+    def itemChange(self, change, value):
+        """Handle changes to the item's state."""
+        if change == QGraphicsItem.ItemPositionChange and self.scene():
+            # Update the module position when dragged
+            new_pos = value
+            
+            # Keep the module within the subspace boundaries
+            x = max(0, min(new_pos.x(), self.subspace.size_x - self.module.size_x))
+            y = max(0, min(new_pos.y(), self.subspace.size_y - self.module.size_y))
+            
+            # Update the module's stored position
+            self.module.x = x
+            self.module.y = y
+            
+            return QPointF(x, y)
+        
+        elif change == QGraphicsItem.ItemSelectedChange:
+            # Handle selection changes
+            pass
+        
+        return super().itemChange(change, value)
+    
+    def hoverEnterEvent(self, event):
+        """Handle mouse hover enter events."""
+        self.setCursor(Qt.SizeAllCursor)
+        self.setOpacity(0.8)
+        super().hoverEnterEvent(event)
+    
+    def hoverLeaveEvent(self, event):
+        """Handle mouse hover leave events."""
+        self.setCursor(Qt.ArrowCursor)
+        self.setOpacity(1.0)
+        super().hoverLeaveEvent(event)
+
+
+class ConnectionPoint(QGraphicsEllipseItem):
+    """A connection point for module inputs/outputs."""
+    
+    def __init__(self, parent_item, x, y, connection_type, capacity, is_output, parent_screen):
+        # Draw a small circle for the connection point
+        radius = 5
+        super().__init__(x - radius, y - radius, radius * 2, radius * 2, parent_item)
+        
+        self.parent_item = parent_item
+        self.connection_type = connection_type
+        self.capacity = capacity
+        self.is_output = is_output
+        self.parent_screen = parent_screen
+        
+        # Visual properties
+        self.setFlag(QGraphicsItem.ItemIsSelectable)
+        self.setAcceptHoverEvents(True)
+        
+        # Color based on connection type
+        color_map = {
+            "power": QColor(255, 100, 100),
+            "data": QColor(100, 100, 255),
+            "water": QColor(100, 255, 100),
+            "cooling": QColor(150, 200, 255)
+        }
+        
+        base_color = color_map.get(connection_type.lower().split('_')[0], QColor(200, 200, 200))
+        self.setBrush(base_color)
+        self.setPen(QPen(Qt.black, 1))
+        
+        # Add a tooltip
+        used = 0  # Calculate actual usage from connections
+        self.setToolTip(f"{'Output' if is_output else 'Input'}: {connection_type}\n"
+                        f"Capacity: {capacity}\n"
+                        f"Used: {used}/{capacity}")
+    
+    def hoverEnterEvent(self, event):
+        """Handle mouse hover enter events."""
+        self.setCursor(Qt.PointingHandCursor)
+        self.setBrush(self.brush().color().lighter())
+        
+        # Update tooltip with current usage
+        if self.is_output:
+            used = self.parent_screen.get_current_output_usage(
+                self.parent_item.module, self.connection_type
+            )
+        else:
+            used = self.parent_screen.get_current_input_usage(
+                self.parent_item.module, self.connection_type
+            )
+        
+        self.setToolTip(f"{'Output' if self.is_output else 'Input'}: {self.connection_type}\n"
+                        f"Capacity: {self.capacity}\n"
+                        f"Used: {used}/{self.capacity}")
+        
+        super().hoverEnterEvent(event)
+    
+    def hoverLeaveEvent(self, event):
+        """Handle mouse hover leave events."""
+        self.setCursor(Qt.ArrowCursor)
+        self.setBrush(self.brush().color().darker())
+        super().hoverLeaveEvent(event)
+    
+    def mousePressEvent(self, event):
+        """Handle mouse press events to start connection."""
+        if event.button() == Qt.LeftButton:
+            # Start connection drawing
+            self.parent_screen.connection_start_item = self.parent_item.module
+            self.parent_screen.connection_start_type = self.connection_type
+            self.parent_screen.connection_is_output = self.is_output
+            
+            # Create temporary line for visual feedback
+            if self.scene():
+                start_point = self.scenePos() + QPointF(5, 5)  # Center of the connection point
+                self.parent_screen.temp_connection_line = QGraphicsLineItem(
+                    start_point.x(), start_point.y(), start_point.x(), start_point.y()
+                )
+                self.parent_screen.temp_connection_line.setPen(QPen(Qt.red, 2, Qt.DashLine))
+                self.scene().addItem(self.parent_screen.temp_connection_line)
+        
+        super().mousePressEvent(event)
+    
+    def mouseReleaseEvent(self, event):
+        """Handle mouse release events to complete connection."""
+        if event.button() == Qt.LeftButton and self.parent_screen.connection_start_item:
+            # Check if we can make a valid connection
+            if (self.parent_screen.connection_is_output != self.is_output and
+                self.parent_screen.connection_start_type == self.connection_type):
+                
+                # Determine source and target
+                if self.parent_screen.connection_is_output:
+                    source_module = self.parent_screen.connection_start_item
+                    source_type = self.parent_screen.connection_start_type
+                    target_module = self.parent_item.module
+                    target_type = self.connection_type
+                else:
+                    source_module = self.parent_item.module
+                    source_type = self.connection_type
+                    target_module = self.parent_screen.connection_start_item
+                    target_type = self.parent_screen.connection_start_type
+                
+                # Check current usage
+                source_used = self.parent_screen.get_current_output_usage(source_module, source_type)
+                target_used = self.parent_screen.get_current_input_usage(target_module, target_type)
+                
+                source_capacity = source_module.outputs[source_type]
+                target_capacity = target_module.inputs[target_type]
+                
+                available_capacity = min(
+                    source_capacity - source_used,
+                    target_capacity - target_used
+                )
+                
+                if available_capacity > 0:
+                    # Ask user for the amount to connect
+                    amount, ok = QInputDialog.getInt(
+                        None, "Connection Amount",
+                        f"Enter amount to connect (max {available_capacity}):",
+                        1, 1, available_capacity
+                    )
+                    
+                    if ok:
+                        # Create the connection
+                        connection = ModuleConnection(
+                            source_module, source_type,
+                            target_module, target_type,
+                            amount
+                        )
+                        
+                        # Create a permanent line for the connection
+                        self.parent_screen.add_module_connection(
+                            connection, self.parent_screen.temp_connection_line
+                        )
+                        
+                        # Update the connection line appearance
+                        self.parent_screen.temp_connection_line.setPen(QPen(Qt.black, 2))
+                        
+                        # Set temporary line to None since it's now a permanent connection
+                        self.parent_screen.temp_connection_line = None
+                else:
+                    # No capacity available
+                    QMessageBox.warning(
+                        None, "Connection Error",
+                        "Cannot create connection due to insufficient capacity."
+                    )
+            else:
+                # Invalid connection (same type or wrong direction)
+                scene = self.scene()
+                if scene and self.parent_screen.temp_connection_line:
+                    scene.removeItem(self.parent_screen.temp_connection_line)
+                    self.parent_screen.temp_connection_line = None
+            
+            # Reset connection tracking
+            self.parent_screen.connection_start_item = None
+            self.parent_screen.connection_start_type = None
+            self.parent_screen.connection_is_output = False
+        
+        super().mouseReleaseEvent(event)
+
+
+class ModuleConnection:
+    """Represents a connection between two modules."""
+    
+    def __init__(self, source_module, source_type, target_module, target_type, amount):
+        self.source_module = source_module
+        self.source_type = source_type
+        self.target_module = target_module
+        self.target_type = target_type
+        self.amount = amount
 

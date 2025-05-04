@@ -47,7 +47,7 @@ class MainWindow(QMainWindow):
         # Crear instancia de la pantalla interior y añadirla a la tercera pestaña
         self.interior_space = InteriorSpace(2000, 1000)  # Tamaño inicial del espacio interior
         self.interior_modules = load_interior_modules("CSV/InteriorModules/")
-        self.interior_screen = InteriorScreen(self.interior_space, self.interior_modules)
+        self.interior_screen = InteriorScreen(self.interior_space, self.interior_modules, center=center)
         self.tab_widget.addTab(self.interior_screen, "Interior")
 
         # Conectar la señal para actualización en tiempo real

@@ -411,7 +411,7 @@ class SubspaceWizard(QDialog):
             new_subspace.add_module(module)
         
         # Add the subspace to the exterior screen
-        self.parent_screen._add_subspace(new_subspace)
+        self.parent_screen.add_subspace(new_subspace)
         
         # Close the wizard
         self.accept()

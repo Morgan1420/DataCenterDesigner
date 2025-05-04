@@ -949,7 +949,30 @@ class ExteriorScreen(QWidget):
                 module_rect.setPen(QColor(0, 0, 0))
                 self.scene.addItem(module_rect)
 
-    def _add_subspace(self, subspace: Subspace = None): 
+    def _add_subspace(self): 
+        # Create a new subspace with default size
+        new_subspace = Subspace(50, 50)
+            
+        # Calculate a position for the new subspace (simple horizontal placement)
+        num_existing_subspaces = len(self.exterior_space.get_subspaces())
+        new_x = num_existing_subspaces * (new_subspace.size_x + 10) # Place horizontally with a 10px gap
+        new_y = 10 # Place near the top
+
+        # Check if it fits within the exterior space boundaries
+        if (new_x + new_subspace.size_x <= self.exterior_space.get_size_x() and
+            new_y + new_subspace.size_y <= self.exterior_space.get_size_y()):
+
+            # Set the calculated position
+            new_subspace.set_position(new_x, new_y)
+
+            # Add to data structure, redraw exterior, and add editor
+            self.exterior_space.add_subspace(new_subspace)
+            self._draw_space() # Redraw exterior to show the new subspace
+            self._add_subspace_editor(new_subspace) # Add editor using the subspace with correct coords
+        else:
+            QMessageBox.warning(self, "Error", "Cannot add new subspace, not enough space in the exterior area.")
+
+    def add_subspace(self, subspace: Subspace = None): 
         # Create a new subspace with default size
         if subspace is None: 
             new_subspace = Subspace(50, 50)
@@ -974,6 +997,7 @@ class ExteriorScreen(QWidget):
             self._add_subspace_editor(new_subspace) # Add editor using the subspace with correct coords
         else:
             QMessageBox.warning(self, "Error", "Cannot add new subspace, not enough space in the exterior area.")
+
 
     def _add_subspace_editor(self, subspace: Subspace):
         # Create a group box for the subspace editor

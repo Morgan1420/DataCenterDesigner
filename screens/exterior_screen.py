@@ -1017,6 +1017,16 @@ class ExteriorScreen(QWidget):
         size_y_layout.addWidget(size_y_input)
         properties_layout.addLayout(size_y_layout)
         
+        # Guardar referencias a los widgets de propiedades para actualización dinámica
+        if not hasattr(self, 'subspace_properties_widgets'):
+            self.subspace_properties_widgets = {}
+        self.subspace_properties_widgets[subspace_coords] = {
+            'name_input': name_input,
+            'size_x_input': size_x_input,
+            'size_y_input': size_y_input,
+            'group_box': properties_groupbox
+        }
+        
         # Delete subspace button
         delete_subspace_btn = QPushButton("Delete Subspace")
         delete_subspace_btn.clicked.connect(lambda: self._delete_subspace(subspace, subspace_editor_group))
@@ -1082,6 +1092,23 @@ class ExteriorScreen(QWidget):
 
         # Add the group box to the scroll area layout
         self.scroll_area_layout.addWidget(subspace_editor_group)
+        
+        # --- Señales para edición bidireccional ---
+        def on_name_edit(text):
+            if not getattr(name_input, '_updating', False):
+                self._update_subspace_name(subspace, text, properties_groupbox)
+        def on_size_x_edit(text):
+            if not getattr(size_x_input, '_updating', False):
+                self._update_subspace_size(subspace, "x", text)
+        def on_size_y_edit(text):
+            if not getattr(size_y_input, '_updating', False):
+                self._update_subspace_size(subspace, "y", text)
+        name_input.textChanged.disconnect()
+        size_x_input.textChanged.disconnect()
+        size_y_input.textChanged.disconnect()
+        name_input.textChanged.connect(on_name_edit)
+        size_x_input.textChanged.connect(on_size_x_edit)
+        size_y_input.textChanged.connect(on_size_y_edit)
 
     def _populate_available_modules(self, available_modules_list, subspace: Subspace):
         available_modules_list.clear()
@@ -1151,7 +1178,7 @@ class ExteriorScreen(QWidget):
         if subspace_modules_list and subspace_scene:
             print(f"Found stored list and scene for subspace {subspace_coords}. Updating editor.")
             self._update_subspace_editor(subspace, subspace_modules_list, subspace_scene)
-            # Redraw the main exterior space as the subspace size might have changed
+            self._refresh_subspace_properties(subspace)
             self._draw_space()
         else:
             print(f"Error: Could not find stored components (list or scene) for subspace {subspace_coords}")
@@ -1224,6 +1251,8 @@ class ExteriorScreen(QWidget):
             print(f"  Graphics scene updated for {subspace_coords}")
         else:
             print(f"  Subspace scene not provided for {subspace_coords}.")
+        # Al final de la función, refrescar los campos de propiedades
+        self._refresh_subspace_properties(subspace)
 
     def _remove_module_from_subspace(self, module: Module, subspace: Subspace):
         subspace_coords = (subspace.x, subspace.y)
@@ -1253,6 +1282,7 @@ class ExteriorScreen(QWidget):
         if subspace_modules_list and subspace_scene:
             print(f"Found stored list and scene for subspace {subspace_coords}. Updating editor after removal.")
             self._update_subspace_editor(subspace, subspace_modules_list, subspace_scene)
+            self._refresh_subspace_properties(subspace)
             # Redraw the main exterior space to show the updated subspace with module removed
             self._draw_space()
         else:
@@ -1276,7 +1306,7 @@ class ExteriorScreen(QWidget):
         """
         Devuelve la distancia entre el Center y un módulo (en el exterior), usando el Environment si está disponible.
         """
-        if self.center is None or modulo is None:
+        if self.center is None or modulo s None:
             return None
         return distancia_entre_modulos(self.center, modulo, self.environment)
 
@@ -1555,4 +1585,13 @@ class ExteriorScreen(QWidget):
     def _on_module_moved(self, module, subspace):
         # Aquí puedes actualizar solo el módulo movido o redibujar todo
         self._draw_space()
+        
+    def _refresh_subspace_properties(self, subspace):
+        """Actualiza los campos de propiedades del subspace en el panel de propiedades."""
+        subspace_coords = (subspace.x, subspace.y)
+        if hasattr(self, 'subspace_properties_widgets') and subspace_coords in self.subspace_properties_widgets:
+            widgets = self.subspace_properties_widgets[subspace_coords]
+            widgets['name_input'].setText(getattr(subspace, 'name', f"Subspace ({subspace.x}, {subspace.y})"))
+            widgets['size_x_input'].setText(str(subspace.size_x))
+            widgets['size_y_input'].setText(str(subspace.size_y))
 
